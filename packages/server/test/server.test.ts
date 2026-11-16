@@ -56,7 +56,7 @@ describe('the illuminate server', () => {
       expect.arrayContaining(['Scanning the code for ways in, routes and tables', 'Reading src/patients/service.ts', '15 of 15 claims confirmed']),
     );
     const got = await api('GET', `/api/maps/${mapId}`);
-    expect(got.body.report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0 });
+    expect(got.body.report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0, proposals: { pending: 0, done: 0 } });
     expect(existsSync(join(root, '.illuminate/maps/patient-converts.json'))).toBe(true);
     expect((await api('GET', '/api/maps')).body.maps.map((m: any) => m.id)).toEqual(['patient-converts']);
   });

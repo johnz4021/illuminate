@@ -2,13 +2,14 @@
 // - a capture must be one illuminate saved under `.illuminate/screens/` (its record and image still matching), and a
 //   highlighted label must be both on the captured screen and in the code the box cites;
 // - an image must be a file in the repo that the cited code names;
-// - a sketch's elements must each appear in the markup file it was drawn from.
+// - a sketch's elements must each appear in the markup file it was drawn from, unless the box carries a proposal and
+//   the element is part of it (then it is shown as proposed until the file has it).
 // No model calls, and nothing is written here: captures are taken and saved by the server (`screens.ts` there).
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { isSafeRelativePath, type MapNode, type Screen } from './format';
+import { isAddition, isSafeRelativePath, type MapNode, type Screen } from './format';
 import { isSecretPath, type RepoReader } from './repo';
 
 export const SCREENS_DIR = '.illuminate/screens';
@@ -131,12 +132,17 @@ export function checkScreen(n: MapNode, repo: RepoReader): ScreenCheck | null {
     return { status: 'confirmed', reasons: [], show: { kind: 'image', file } };
   }
 
+  // A sketch shows what's in the markup file. On a box that carries a proposal it may also show what isn't there yet:
+  // an element marked `proposed`, or every element of a box that is itself a proposed addition (whose file may not
+  // exist). Whether an element is still only proposed is read from the file, not taken from the map.
   const read = repo.read(file);
-  if (!read.ok) return fail(`${file}: ${read.reason}`);
-  const text = norm(read.text);
-  const elements = sc.elements ?? [];
-  const missing = elements.filter((e) => !text.includes(norm(e.text)));
+  const adding = isAddition(n);
+  if (!read.ok && !adding) return fail(`${file}: ${read.reason}`);
+  const text = read.ok ? norm(read.text) : '';
+  const written = sc.elements ?? [];
+  const missing = written.filter((e) => !(adding || e.proposed) && !text.includes(norm(e.text)));
   if (missing.length) return fail(...missing.map((e) => `"${e.text}" isn't in ${file}`));
-  if (sc.highlight && !elements.some((e) => norm(e.text) === norm(sc.highlight!))) return fail(`the highlight "${sc.highlight}" isn't one of the sketch's elements`);
+  if (sc.highlight && !written.some((e) => norm(e.text) === norm(sc.highlight!))) return fail(`the highlight "${sc.highlight}" isn't one of the sketch's elements`);
+  const elements = written.map((e) => ({ kind: e.kind, text: e.text, ...(text.includes(norm(e.text)) ? {} : { proposed: true }) }));
   return { status: 'confirmed', reasons: [], show: { kind: 'sketch', file, elements, highlight: sc.highlight ?? null } };
 }

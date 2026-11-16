@@ -148,6 +148,38 @@ frontend."*
   - "Working somewhere you haven't explored" and a per-user explored-regions map.
   - "This step was patched 5 times this week" counters. That's the *band-aid detector*, and it needs a time dimension.
 
+## 8b. Direction after the November interviews (2026-11-13)
+
+Decided with the user after 14 interviews (`CUSTOMER_DISCOVERY.md`): illuminate is a free, helpful tool, not a wedge
+to monetize. The pitch is "see what Claude means": anything about what exists is checked against the code, and
+anything Claude proposes is drawn as a proposal on top of it. It has to win on experience over "Claude + Mermaid".
+
+- **Maps are throwaway**, like an artifact: made, read, discarded. So no map history, and saved-map features
+  (committing maps, `illume check` in CI) stay in the code but out of the pitch. A live view of the agent working was
+  dropped too: it only makes sense if illuminate becomes the place changes are made.
+- **Don't out-search Claude.** Finding the right code in a big repo is the model's job. illuminate's part is not to
+  get in the way (the scan fix) and not to claim more than the check proves (the wording).
+- **Built 2026-11-13:** the scan fix, honest wording, proposals and journeys (see `CLAUDE.md`, "Scan" and
+  "Proposals"). On a 6,237-file repo that was mostly virtual environments the scan went from 24 s to 0.09 s.
+- **Journeys redrawn 2026-11-14.** The first real journey map (John's shirt-ordering flow) had the right content but
+  still looked like a code map. John's reference was a plain FigJam user flow. So a journey now sets
+  `view: 'journey'` and is drawn left to right with no area boxes, a diamond for a choice, a pill for an action, and
+  no code on the boxes. The prompt also forbids backend boxes on a journey. Real Claude has not yet written a map
+  with the new kinds (`screen`, `action`, `choice`), and a screen's picture is still only in the panel and the
+  walkthrough, not on the box.
+- **Not done yet:**
+  - Proposals and journeys have only run with a scripted Claude (`npm run preview`, ask "How would we send the welcome
+    email right away? Give me a plan."). Real Claude hasn't written one, so the prompt rules are untested.
+  - A proposed `then` arrow, or a proposed box with no `symbol`, can't be detected as built and stays proposed.
+  - A gap that a built proposal closes shows as "doesn't match the code" (its search now finds a match). True, but it
+    reads like bad news; it should say the gap is closed.
+  - No way to hide the proposal and see only the code as it is. Additions are laid out below existing boxes, so a
+    proposed arrow can cross them.
+  - A "what changed" map drawn from `git diff` is deferred; git would be its source of truth.
+  - The 33-minute silent death of an `illuminate_listen` call seen on 2026-11-13 is still open.
+- **How to tell it's helpful:** Lucia, Felix and Dhruv on their own repos for a week. Did they open it a second time
+  unprompted, and ask a follow-up on the map instead of in the terminal?
+
 ## 9. Gotchas that cost time
 
 - **Agent SDK (`@anthropic-ai/claude-agent-sdk` 0.3.296), verified from its types:**

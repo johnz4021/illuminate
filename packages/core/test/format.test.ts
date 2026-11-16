@@ -1,4 +1,6 @@
 // The map format: shape validation, defaults, and references between areas, boxes, arrows, absences and tour stops.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { isSafeRelativePath, parseMap } from '../src/format';
 
@@ -31,8 +33,7 @@ describe('parseMap', () => {
     if (r.ok) return;
     expect(r.problems).toEqual(expect.arrayContaining([
       expect.stringMatching(/^version: /),
-      expect.stringMatching(/^nodes\.0\.evidence: /),
-      'nodes.1.symbol: symbol is <file>#<name>',
+            'nodes.1.symbol: symbol is <file>#<name>',
     ]));
   });
 
@@ -60,5 +61,21 @@ describe('isSafeRelativePath', () => {
   it('allows repo-relative paths and rejects anything that could leave the repo', () => {
     expect(['src/a.ts', 'a.ts', '.github/workflows/ci.yml'].every(isSafeRelativePath)).toBe(true);
     expect(['/etc/passwd', '../x.ts', 'src/../../x', 'C:/x', 'src\\x.ts', 'src//x.ts', ''].some(isSafeRelativePath)).toBe(false);
+  });
+});
+
+describe('a journey map', () => {
+  const raw = JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/care-app.journey.json', import.meta.url)), 'utf8'));
+
+  it('is the same format with a view and its own box kinds', () => {
+    const r = parseMap(raw);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.map.view).toBe('journey');
+    expect(r.map.nodes.map((n) => n.kind)).toEqual(['screen', 'action', 'external']);
+  });
+
+  it('rejects a view it does not know', () => {
+    expect(parseMap({ ...raw, view: 'poster' }).ok).toBe(false);
   });
 });

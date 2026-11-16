@@ -188,13 +188,13 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
         const next: StoredMap = {
           ...latest,
           meta: { ...latest.meta, explainerSession: r.sessionId, cost: latest.meta.cost + r.answer.cost, updatedAt: new Date().toISOString() },
-          map: r.answer.added.length || r.answer.screens?.length ? r.map : latest.map,
+          map: r.answer.added.length || r.answer.screens?.length || r.answer.proposed?.length ? r.map : latest.map,
           answers: [...(latest.answers ?? []), r.answer],
           fixes: r.answer.fix ? withFix(latest, r.answer.fix.id, { status: 'proposed' }) : latest.fixes,
         };
         store.save(next);
         endJob(mapId);
-        if (r.answer.added.length || r.answer.screens?.length) publishMap(next);
+        if (r.answer.added.length || r.answer.screens?.length || r.answer.proposed?.length) publishMap(next);
         broadcast({ type: 'answer', mapId, answer: r.answer });
         broadcast({ type: 'job', mapId, job: 'ask', status: 'done', question: q });
       } catch (err) {

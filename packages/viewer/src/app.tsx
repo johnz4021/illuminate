@@ -1,6 +1,6 @@
 // The two screens: the list of maps (with a box to ask a new question), and a map with its panel and input bar. Moving
 // between them doesn't reload the page.
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ApiError, api, connect, pageUrl, token } from './api';
 import { Composer } from './composer';
@@ -13,7 +13,6 @@ import { StopButton, Stopped } from './stop';
 import { Panel } from './panel';
 import { PanelResizer, usePanelWidth } from './resize';
 import { TourBubble } from './tour';
-import { inOverview, overviewOf } from './overview';
 import { addedIds, currentView, initialState, reducer, selSize, visibleMap, type Sel } from './state';
 import type { CheckReport } from './types';
 
@@ -61,52 +60,46 @@ function MapSwitcher({ mapId, question }: { mapId: string; question: string }) {
 }
 
 /**
- * Whether the map still matches the code, in words. The checker re-tests every box, arrow and gap against the repo
- * each time the map is shown; when some fail, it's usually because the code changed after the map was made.
+ * What the check found, in words, and no more than it found. The checker re-tests every box, arrow and gap against the
+ * repo each time the map is shown: that proves each part is real code, not that the map is the whole story. Proposals
+ * are counted apart, since they aren't claims about the code as it is.
  */
 function MapStatus({ report }: { report: CheckReport | null }) {
   if (!report) return null;
   const off = report.summary.unconfirmed;
-  if (!off) {
-    return <span className="map-status ok" title="Every box, arrow and gap on this map was just re-checked against the code, and all of it holds.">✓ Matches the code</span>;
-  }
-  return (
-    <span
-      className="map-status off"
-      title="Every time the map is shown, illuminate re-checks it against the code. These parts no longer hold, usually because the code changed after the map was made. They're dashed and marked ? on the map; click one to see why."
-    >
-      {off === 1 ? '1 part of this map doesn’t match the code' : `${off} parts of this map don’t match the code`}
+  const { pending, done } = report.summary.proposals ?? { pending: 0, done: 0 };
+  const proposed = pending + done;
+  const proposals = !proposed ? null : (
+    <span className="map-status proposals" title="Parts of this map are a proposal, drawn in violet: they aren't in the code yet, or would change or go. illuminate checks the code to see which have been done.">
+      {done === 0 ? `${proposed} proposed ${proposed === 1 ? 'change' : 'changes'}` : `${done} of ${proposed} proposed changes done`}
     </span>
   );
-}
-
-/** How much the map shows: every step, or each part of the app as one box. Remembered between maps. */
-type Level = 'steps' | 'big';
-const LEVEL_KEY = 'illuminate-level';
-const readLevel = (): Level => {
-  try {
-    return localStorage.getItem(LEVEL_KEY) === 'big' ? 'big' : 'steps';
-  } catch {
-    return 'steps';
+  if (!off) {
+    return (
+      <>
+        <span className="map-status ok" title="Every box and arrow on this map was just re-checked and is really in the code, and every gap's search still finds nothing. That shows each part is real; it doesn't show the map covers everything.">✓ Every part is in the code</span>
+        {proposals}
+      </>
+    );
   }
-};
-const NO_SELECTION: Sel = { nodes: [], edges: [], absences: [] };
-const NO_IDS: string[] = [];
+  return (
+    <>
+      <span
+        className="map-status off"
+        title="Every time the map is shown, illuminate re-checks it against the code. These parts no longer hold, usually because the code changed after the map was made. They're dashed and marked ? on the map; click one to see why."
+      >
+        {off === 1 ? '1 part of this map doesn’t match the code' : `${off} parts of this map don’t match the code`}
+      </span>
+      {proposals}
+    </>
+  );
+}
 
 function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void }) {
   const [s, dispatch] = useReducer(reducer, mapId, initialState);
   const [draft, setDraft] = useState('');
   const [panelWidth, setPanelWidth] = usePanelWidth();
   const wasConnected = useRef(false);
-  const [level, setLevel] = useState<Level>(readLevel);
-  const chooseLevel = useCallback((l: Level) => {
-    setLevel(l);
-    try {
-      localStorage.setItem(LEVEL_KEY, l);
-    } catch {
-      // Private browsing: the choice just doesn't outlive the page.
-    }
-  }, []);
 
   const load = useCallback(() => {
     api.get(mapId).then(
@@ -180,19 +173,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   const onClear = useCallback(() => dispatch({ type: 'clearSelection' }), []);
   const drawn = visibleMap(s);
   const added = addedIds(s);
-  // The same map one level up (overview.ts). What's lit there is whatever stands for what's lit on the steps.
-  const big = useMemo(() => (level === 'big' && drawn ? overviewOf(drawn, s.report) : null), [level, drawn, s.report]);
   const view = currentView(s);
-  const bigView = useMemo(
-    () => (big && view ? { focus: view.focus ? inOverview(big, [view.focus])[0] ?? null : null, highlight: inOverview(big, view.highlight) } : null),
-    [big, view],
-  );
-  // Pressing a box or arrow of the big picture opens the steps it stands for.
-  const openSteps = useCallback((_kind: keyof Sel, id: string) => {
-    const first = big?.inside[id]?.[0];
-    chooseLevel('steps');
-    if (first) dispatch({ type: 'focus', id: first });
-  }, [big, chooseLevel]);
   const touring = !!s.map && s.tour !== null;
   // The panel shows only when it has something to say: an answer, what's selected, Claude's progress or an error
   // (before the map exists, it says how making it is going). Earlier questions are in the dock. During the walkthrough
@@ -233,13 +214,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         <div className="canvas">
           {s.map && drawn ? (
             <>
-              {big
-                ? <MapGraph key="big" map={big.map} report={big.report} selection={NO_SELECTION} view={bigView} fresh={NO_IDS} added={NO_IDS} ghost={null} touring={touring} onSelect={openSteps} onClear={onClear} />
-                : <MapGraph key="steps" map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} />}
-              <div className="level" role="group" aria-label="How much detail the map shows">
-                <button className={level === 'big' ? 'on' : undefined} aria-pressed={level === 'big'} onClick={() => chooseLevel('big')} title="Each part of the app as one box">Big picture</button>
-                <button className={level === 'steps' ? 'on' : undefined} aria-pressed={level === 'steps'} onClick={() => chooseLevel('steps')} title="Every step inside each part">Steps</button>
-              </div>
+              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} />
               {!touring && !panel && <ConversationButton state={s} dispatch={dispatch} />}
               {touring && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={setDraft} />}
               <Dock map={s.map} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>

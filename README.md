@@ -101,12 +101,18 @@ can tie it to the code. Screenshots are saved under `.illuminate/screens/`.
    routes, which tables are written). Claude explores with Read/Grep/Glob only and returns the map in a fixed format.
 2. **Check every claim.** `check()` re-reads each cited line, verifies calls, requests and imports against code facts,
    and re-runs the search behind every "nothing does X". Claude gets up to two rounds to fix what didn't hold. Anything
-   still unconfirmed is shown with a "?", never hidden.
+   still unconfirmed is shown with a "?", never hidden. The check proves each part is real code; it doesn't prove the
+   map covers everything, and each gap shows the search behind it so you can judge that yourself.
 3. **Explore.** The viewer draws areas, steps, labeled arrows and red dashed gaps, with a walkthrough Claude wrote. Select
    anything and ask, as a conversation: replies are short and lead with the answer, and the map does the explaining (each reply
    lights up what it's about). Claude explores further when the map isn't enough; what it finds is drawn only if it
    passes the checker.
-4. **Fix from the map.** Ask for a change and Claude proposes a fix, drawn as a green dashed arrow next to the exact diff.
+4. **See a change before it's made.** Ask how something would change ("how would we send this right away?") and the
+   map shows the code as it is, checked, with the proposal on top in violet: new boxes and arrows dashed, what would
+   go struck through. Nothing is edited. After the change is built, reopen the map: illuminate checks the code and
+   marks which proposed parts are now there. Ask what someone sees or goes through, and the map is drawn as a
+   user flow instead: screens, actions and choices from left to right, with the code behind each one a click away.
+5. **Fix from the map.** Ask for a change and Claude proposes a fix, drawn as a green dashed arrow next to the exact diff.
    Nothing changes until you approve. Then illuminate writes exactly that change (refusing if the files changed since),
    re-checks the map, and offers Undo.
 

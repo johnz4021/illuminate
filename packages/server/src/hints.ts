@@ -8,7 +8,8 @@ const MAX_LINES = 40;
 const MAX_SYMBOL_FILES = 150;
 const MAX_SYMBOLS_PER_FILE = 40;
 const CITABLE = new Set(['function', 'method', 'component', 'class']);
-const TEST_FILE = /(^|\/)(test|tests|__tests__|fixtures?)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+/** Tests, fixtures and mocks: code that exists to exercise the app, which a map of the app shouldn't start from. */
+const TEST_FILE = /(^|\/)(test|tests|__tests__|__mocks__|e2e|fixtures?)\/|\.(test|spec)\.[cm]?[jt]sx?$|_test\.(go|py)$|(^|\/)test_[^/]*\.py$/;
 const section = (title: string, lines: string[], max = MAX_LINES) =>
   lines.length ? [`${title}:`, ...lines.slice(0, max), ...(lines.length > max ? [`  …and ${lines.length - max} more`] : []), ''] : [];
 
@@ -30,6 +31,18 @@ export function symbolIndexOf(scan: RepoScan | null): (file: string) => readonly
   return (file) => scan?.fileFacts[file]?.symbols.filter((s) => CITABLE.has(s.kind) && !s.name.includes('<')).map((s) => s.name) ?? [];
 }
 
+/**
+ * The function index, when it fits. In a big repo a cut-off list would name files the question isn't about, so it's
+ * left out: Claude names functions by the rules, and a repair round sends back the real names in the files it cited.
+ */
+function functionSection(index: string[]): string[] {
+  if (index.length <= MAX_SYMBOL_FILES) return section('Functions by file (use these exact names for `symbol`)', index, MAX_SYMBOL_FILES);
+  return [
+    `Functions by file: not listed (${index.length} files have functions, too many to list). Name each \`symbol\` by the rules above; if a name is off, the check sends back the real names in that file.`,
+    '',
+  ];
+}
+
 export async function headStart(root: string): Promise<{ text: string; scan: RepoScan | null }> {
   await initTreeSitter();
   let scan: RepoScan;
@@ -38,7 +51,8 @@ export async function headStart(root: string): Promise<{ text: string; scan: Rep
   } catch {
     return { text: '(The automatic scan could not read this repo; explore it directly.)', scan: null };
   }
-  const facts = Object.values(scan.fileFacts);
+  // Tests and fixtures are left out of every section: their routes and tables aren't the app's.
+  const facts = Object.values(scan.fileFacts).filter((f) => !TEST_FILE.test(f.path));
 
   const entries = facts.flatMap((f) => f.entries).map((e) => `  - ${e.kind} ${e.label}${e.symbol ? ` → ${e.symbol}` : ` (${e.file})`}`);
   const routes = facts.flatMap((f) => f.routes);
@@ -61,6 +75,7 @@ export async function headStart(root: string): Promise<{ text: string; scan: Rep
 
   const folders = new Map<string, number>();
   for (const f of scan.files) {
+    if (TEST_FILE.test(f)) continue;
     const top = f.includes('/') ? f.slice(0, f.indexOf('/')) : '(root)';
     folders.set(top, (folders.get(top) ?? 0) + 1);
   }
@@ -72,7 +87,7 @@ export async function headStart(root: string): Promise<{ text: string; scan: Rep
     ...section('Requests from the code that match a route', requests),
     ...section('Tables and what writes them', tables),
     ...section('Top-level folders', folderLines),
-    ...section('Functions by file (use these exact names for `symbol`)', symbolIndex(scan), MAX_SYMBOL_FILES),
+    ...functionSection(symbolIndex(scan)),
   ].join('\n');
   return { text: text || '(The automatic scan found no entry points; explore the repo directly.)', scan };
 }

@@ -13,6 +13,7 @@ const fixture = (p: string) => fileURLToPath(new URL(`../../core/test/fixtures/$
 const root = mkdtempSync(join(tmpdir(), 'illuminate-preview-'));
 cpSync(fixture('care-app'), root, { recursive: true });
 const MAP = JSON.parse(readFileSync(fixture('care-app.map.json'), 'utf8'));
+const JOURNEY = JSON.parse(readFileSync(fixture('care-app.journey.json'), 'utf8'));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function narrate(req: AgentRequest, steps: [string, string][]) {
@@ -32,7 +33,9 @@ const agent: Agent = async (req) => {
       ['read', 'Reading src/automations/evaluate.ts'],
       ['read', 'Reading src/jobs/nightly.ts'],
     ]);
-    return { output: MAP, sessionId: 'preview-maker', cost: 0 };
+    // Asked what someone sees or goes through, the stand-in returns the journey: the same app as a user flow.
+    const journey = /journey|go(es)? through|user flow|\bsees?\b/i.test(req.prompt.slice(req.prompt.indexOf('## The question')).split('\n')[1] ?? '');
+    return { output: journey ? JOURNEY : MAP, sessionId: 'preview-maker', cost: 0 };
   }
   // Only the question itself (the line after "## Their question"), not the instructions around it.
   const q = req.prompt.slice(req.prompt.indexOf('## Their question')).split('\n')[1] ?? '';
@@ -41,7 +44,34 @@ const agent: Agent = async (req) => {
     await sleep(600);
     // Billing isn't part of this map (or this app): the "different part of the app" card.
     if (/invoice|bill/i.test(q)) return { output: { route: 'elsewhere', newQuestion: 'How does the app bill patients and send invoices?' }, sessionId: null, cost: 0 };
+    if (/how would|what would|plan|propos/i.test(q)) return { output: { route: 'code', missing: 'What the change would touch.' }, sessionId: null, cost: 0 };
     if (/make|change|fix|right away|immediately|where|when|run/i.test(q)) return { output: { route: 'code', missing: 'Code the map doesn\'t show.' }, sessionId: null, cost: 0 };
+  }
+  // A plan, not a request to make the change: drawn on the map as a proposal, on top of the code as it is.
+  if (/how would|what would|plan|propos/i.test(q)) {
+    await narrate(req, [['read', 'Reading src/events/bus.ts'], ['read', 'Reading src/jobs/nightly.ts']]);
+    return {
+      output: {
+        concept: 'Add a listener that runs the rules the moment a patient converts, and drop the nightly job that does it late. Staff would also see that the email was sent. The violet parts are the proposal; nothing has been changed.',
+        refs: ['p-listen', 'j1', 's1'],
+        add: {
+          nodes: [{ id: 'p-listen', area: 'automations', name: 'Hears the announcement', symbol: 'src/automations/listeners.ts#onConverted', explain: { concept: 'A new listener that reacts as soon as a patient converts.' }, proposed: { kind: 'add', note: 'So the welcome email no longer waits for the night.' } }],
+          edges: [
+            { id: 'p-heard', from: 's4', to: 'p-listen', kind: 'then', label: 'is heard by', proposed: { kind: 'add' } },
+            { id: 'p-runs', from: 'p-listen', to: 'u1', kind: 'calls', label: 'runs the rules', proposed: { kind: 'add' } },
+          ],
+        },
+        propose: [
+          { id: 'j1', proposed: { kind: 'remove', note: 'Not needed once the listener runs the rules right away.' } },
+          { id: 'ej', proposed: { kind: 'remove' } },
+          { id: 's1', proposed: { kind: 'change', note: 'Show staff that the welcome email went out.' } },
+        ],
+        screens: [{ node: 's1', screen: { kind: 'sketch', file: 'src/ui/PatientHeader.tsx', elements: [{ kind: 'button', text: 'Mark as converted' }, { kind: 'text', text: 'Welcome email sent', proposed: true }] } }],
+        moves: { focus: 'p-listen', highlight: ['s4', 'p-heard', 'p-listen', 'p-runs', 'u1', 'j1', 'ej'] },
+      },
+      sessionId: 'preview-explainer',
+      cost: 0,
+    };
   }
   if (/make|change|fix|right away|immediately/i.test(q)) {
     await narrate(req, [['read', 'Reading src/events/bus.ts'], ['search', 'Searching for "bus\\.on\\("']]);
@@ -93,7 +123,7 @@ const agent: Agent = async (req) => {
 const cleanUp = () => rmSync(root, { recursive: true, force: true });
 // No autoStop here (a preview stays up for UI work), but the page's Stop button still ends it.
 const server = await startServer({ root, port: Number(process.env.PORT ?? 4318), agent, onStop: () => { cleanUp(); process.exit(0); } });
-const id = server.startMap('What happens when a patient converts? Does the welcome email go out?');
+const id = server.startMap(process.env.PREVIEW_QUESTION ?? 'What happens when a patient converts? Does the welcome email go out?');
 console.log(`\nilluminate preview (scripted Claude, no model calls) on a copy of the care app:\n\n  ${server.pageUrl(id)}\n`);
 const stop = () => void server.close().then(() => { cleanUp(); process.exit(0); });
 process.on('SIGINT', stop);

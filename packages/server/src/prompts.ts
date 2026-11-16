@@ -1,10 +1,10 @@
 // Every prompt illuminate sends. The reader is semi-technical: they can follow a diagram but don't hold the system in
 // their head. Plain English first; code names belong in the "code" depth.
-import type { CheckReport, CodeMap } from '@illuminate/core';
+import { settledProposals, type CheckReport, type CodeMap } from '@illuminate/core';
 
 const EVIDENCE_RULES = [
   '## Evidence rules (a program checks every claim; anything it can\'t confirm is shown as unconfirmed)',
-  '- Every box and arrow cites at least one line: `file` (repo-relative), `line` (1-based), and `text` copied exactly from that line. A distinctive fragment of 10–80 characters works best.',
+  '- Every box and arrow that is in the code cites at least one line: `file` (repo-relative), `line` (1-based), and `text` copied exactly from that line. A distinctive fragment of 10–80 characters works best.',
   '- A box that is a function or method gets `symbol`: "<file>#<name>", named the way the checker names it: methods as Class.method, object members as obj.member ("src/db.ts#db.update"), a function inside another function as outer.inner, and a function in the object a factory returns as factory.member. When a list of functions by file is given, copy the name from it. If you aren\'t sure of the name, leave `symbol` out: the box is still checked by its cited line.',
   '- Arrow `kind`: `calls` when a function in the from box literally calls the function in the to box; `request` when an HTTP call in the from box hits a route handled by the to box; `imports`; `then` for anything else (events, ordering). The checker verifies calls, request and imports against the code, so use them only when literally true.',
   '- Never cite or read secret files (.env, keys).',
@@ -14,13 +14,44 @@ const MAP_RULES = [
   '## What a good map is',
   '- It follows what happens, in order, from where it starts (a button, a route, a job, a command) to where it ends (a table write, an email, an outside API), or to where it stops.',
   '- 2–6 `areas` named in product language (Patients, Billing, Background jobs), not folder names.',
-  '- 4–12 boxes (`nodes`). Each is one step a person would recognize. `name`: plain English, at most 30 characters ("Patient marked enrolled", not "markConverted()").',
+  '- Aim for 6–8 boxes (`nodes`); 12 is a hard ceiling, reached only when the question asks about several things at once. A map is an answer, not an inventory: someone should be able to hold it in their head. Each box is one step a person would recognize and that the answer turns on.',
+  '- Leave plumbing off the map unless the question is about it: a request arriving, a job being started, a result being saved, an update being sent to the screen. Fold each into the box it serves and say it in that box\'s `explain` or on the arrow.',
+  '- When several steps in a row just hand on to the next (a route that calls a handler that calls a service), they are one box, cited at the step that matters.',
+  '- When the answer is a list of like things (five kinds of rule, four checks), that is one box naming the group, or at most the two or three that differ in a way the question cares about; put the rest in `explain`.',
+  '- Before returning, go through the boxes one at a time: if the answer would be the same without it, drop or merge it.',
+  '- Box `name`: plain English, at most 30 characters ("Patient marked enrolled", not "markConverted()").',
   '- `kind`: entry (a way in), step, store (table, queue, cache), external (outside service), job (scheduled or background work).',
   '- `explain` for every box: just `concept`, 1–2 plain sentences, no jargon, saying what this step does. The box already shows its function and file, so leave those out.',
   '- Arrow `label`: 1–3 words saying how one step leads to the next ("sends request", "calls", "announces", "every night").',
   '- Code that exists but isn\'t reached from the start can still be boxes. Don\'t draw arrows that don\'t exist.',
   '- An `absence` is a break in the flow you were asked about: a step on that path should lead to the next one and doesn\'t (something is announced that nothing listens for, a job that nothing ever starts). Most maps have none, and a map without one is complete. Don\'t go looking for one, and don\'t use one for a design choice or guarantee ("X never calls Y", "nothing here edits files"): say that in a box\'s explanation or the walkthrough instead. Don\'t record small mismatches beside the question (a command the docs don\'t mention, an unused option).',
   '- When there is a break, record it: the `claim` in plain words, the two boxes it should connect (`between`), and the exact `search` that proves nothing is there (`pattern`, `regex`, optional `paths` globs covering every file where the missing piece could live), with `matches` set to the count that search returns (usually 0). Run that search yourself with Grep first.',
+];
+
+/** A journey: the map told as what a person sees and does, each step still tied to the code that makes it so. */
+const JOURNEY_RULES = [
+  '## When the question is about what a person sees or does (a journey, a user flow)',
+  '- Set `"view": "journey"` on the map: it is then drawn as a user flow, left to right, with no code on the boxes (the code is one click away).',
+  '- `kind` here is one of: `screen` (something the person looks at), `action` (something they do that is a step in itself: "Fills in the form", "Pays"), `choice` (a point where they pick between ways forward, named as the question they face: "Buy now or add to bag?"; each arrow out of it is one option, labeled with what they pick). Use a `choice` wherever the path forks on what the person decides, rather than two arrows out of a screen.',
+  '- Draw only what the person sees and does. Every box is a screen they look at or something they do on one, in order, named the way they would say it ("Sign-up form", "Email confirmed"). Areas are the stages of the journey as the person lives them ("Choosing", "Paying", "Waiting for it"). Arrows say what the person does or what happens to them next ("taps Sign up", "is sent to").',
+  '- Leave out what goes on behind the screen: no boxes for routes, requests, functions, jobs, database writes or other services. When several of those sit between two screens, they are one arrow ("pays, and lands on"), and that arrow cites the code that does it. A step that happens outside the app is a box only if the person sees it (a payment page, an email they get), cited at the line that sends them there or sends it.',
+  '- A wait is part of the journey: when the next thing the person sees comes later (an email after a nightly job, an order shipped after approval), say so on the arrow in their terms ("a day later, gets"), and don\'t draw the job.',
+  '- Each box and arrow still cites the code that makes it so: the component, the handler, the redirect.',
+  '- Give every screen box a `screen` (see Screens), so the journey can be followed in pictures. Here more than two is right.',
+  '- Where the journey stops short (a button that leads nowhere, a result with no screen, nothing ever telling the person what happened), that is a break: record it as an absence.',
+  '- The walkthrough is told as the person\'s experience too, one stop per screen.',
+];
+
+/** Proposals: what the map suggests changing, drawn on top of the code as it is. */
+export const PROPOSAL_RULES = [
+  '## Proposals (`proposed` on a box or arrow; only when a change is asked for)',
+  '- When they ask how something could or should change ("how would we add…", "plan…", "what would it take to…", "propose…"), draw the code as it is, cited and checked as usual, and the change on top of it. A question about how things work today gets no proposals.',
+  '- `"proposed": { "kind": "add", "note": "…" }`: a box or arrow that isn\'t in the code yet. It cites nothing, so leave `evidence` out. Give a new box the `symbol` it would have ("<file>#<name>"; the file may be new) and a new arrow its real `kind` (`calls`, `request`, `imports`): that is how the check can tell, later, that it has been built. An arrow to or from a new box is itself an addition.',
+  '- `"kind": "change"` or `"remove"`: code that is there today and would be changed or deleted. Cite it like any other claim.',
+  '- `note`: one plain sentence saying what would change and why.',
+  '- Every new box must connect, through arrows, to a box that exists. Keep it small: only the boxes and arrows the change needs.',
+  '- On a screen: a box with `proposed` may have a sketch with elements marked `"proposed": true` for what would be added to it, and a new screen is a new box whose sketch is all new.',
+  '- A program checks proposals against the code too. Proposing to add what the code already has, or to change or remove what it doesn\'t have, is sent back.',
 ];
 
 /** When a picture of the screen helps, and the three forms the checker accepts. */
@@ -35,9 +66,11 @@ export const SCREEN_RULES = [
 
 const TOUR_RULES = [
   '## Walkthrough (`tour`, written last)',
-  '- 4–7 stops in the order a newcomer should read them: what the map shows, then the path, then what it means. If the map has a break, give it a stop where it happens on the path.',
+  '- 4–7 stops in the order a newcomer should read them: the answer, then the path, then what it means. If the map has a break, give it a stop where it happens on the path.',
+  '- The first stop answers their question outright, in a sentence or two, as you would if they asked you in person ("The welcome email never goes out: the app announces the conversion, but nothing is listening."). Its `title` is the answer in a few words. Don\'t open by describing the map ("This map follows…", "It has three areas…"): they can see it. Focus it on the boxes the answer turns on.',
   '- Each stop: `title`, `text` (2–3 plain sentences), `focus` (ids of the areas, nodes, edges or absences it\'s about), and optional `terms` it uses that need defining.',
   '- Point stops only at boxes, arrows and absences you\'re confident in.',
+  '- If the map has proposals, give them a stop after the path: what would change, and what stays as it is.',
 ];
 
 export function makerPrompt(question: string, headStart: string): string {
@@ -48,7 +81,11 @@ export function makerPrompt(question: string, headStart: string): string {
     '',
     ...MAP_RULES,
     '',
+    ...JOURNEY_RULES,
+    '',
     ...EVIDENCE_RULES,
+    '',
+    ...PROPOSAL_RULES,
     '',
     ...SCREEN_RULES,
     '',
@@ -89,8 +126,12 @@ function withSuggestion(reason: string, symbolsIn: SymbolsIn | undefined): strin
 export function evidenceRepairPrompt(report: CheckReport, symbolsIn?: SymbolsIn): string {
   const why = (reasons: string[]) => reasons.map((r) => withSuggestion(r, symbolsIn)).join('; ');
   const lines = [
-    ...Object.entries(report.nodes).filter(([, c]) => c.status !== 'confirmed').map(([id, c]) => `- box ${id}: ${why(c.reasons)}`),
-    ...Object.entries(report.edges).filter(([, c]) => c.status !== 'confirmed').map(([id, c]) => `- arrow ${id}: ${why(c.reasons)}`),
+    ...Object.entries(report.nodes).filter(([, c]) => c.status === 'unconfirmed').map(([id, c]) => `- box ${id}: ${why(c.reasons)}`),
+    ...Object.entries(report.edges).filter(([, c]) => c.status === 'unconfirmed').map(([id, c]) => `- arrow ${id}: ${why(c.reasons)}`),
+    ...settledProposals(report).map((p) =>
+      p.kind === 'add'
+        ? `- ${p.what} ${p.id}: you propose adding it, but the code already has it. Draw it as code that exists (cite its line, no \`proposed\`), or drop it.`
+        : `- ${p.what} ${p.id}: you propose to ${p.kind} it, so it must cite code that is there now: ${why(p.reasons)}`),
     ...Object.entries(report.absences).filter(([, c]) => c.status !== 'confirmed').map(([id, c]) => `- absence ${id}: ${c.reasons.join('; ')}${c.locations.length ? ` (found at ${c.locations.slice(0, 5).map((l) => `${l.file}:${l.line}`).join(', ')})` : ''}`),
   ];
   const screens = Object.entries(report.screens ?? {}).filter(([, c]) => c.status !== 'confirmed').map(([id, c]) => `- screen on box ${id}: ${c.reasons.join('; ')}`);
@@ -118,13 +159,14 @@ export type SelectionLine = { id: string; label: string };
 
 /** The map, what the checker couldn't confirm, what they selected and their question: shared by both answer prompts. */
 function questionContext(map: CodeMap, report: CheckReport, selection: readonly SelectionLine[], question: string): string[] {
-  const unconfirmed = [
-    ...Object.entries(report.nodes), ...Object.entries(report.edges), ...Object.entries(report.absences),
-  ].filter(([, c]) => c.status !== 'confirmed').map(([id]) => id);
+  const all = [...Object.entries(report.nodes), ...Object.entries(report.edges), ...Object.entries(report.absences)];
+  const unconfirmed = all.filter(([, c]) => c.status === 'unconfirmed').map(([id]) => id);
+  const proposals = [...Object.entries(report.nodes), ...Object.entries(report.edges)].flatMap(([id, c]) => (c.proposal ? [`${id} (${c.proposal.kind}: ${c.proposal.state === 'done' ? 'now done in the code' : 'not done yet'})`] : []));
   return [
     '## The map (JSON)',
     JSON.stringify(map),
-    unconfirmed.length ? `\nThe checker could not confirm: ${unconfirmed.join(', ')}. Don\'t rely on those without checking.` : '\nThe checker confirmed every claim in the map.',
+    unconfirmed.length ? `\nThe checker could not confirm: ${unconfirmed.join(', ')}. Don\'t rely on those without checking.` : '\nThe checker confirmed every claim in the map about the code as it is.',
+    ...(proposals.length ? [`These are proposals, not code as it is; the checker says where each stands: ${proposals.join(', ')}.`] : []),
     '',
     selection.length ? `## They selected\n${selection.map((s) => `- ${s.id}: ${s.label}`).join('\n')}` : '## They selected nothing (the question is about the whole map)',
     '',
@@ -214,6 +256,7 @@ export function explainerPrompt(
     'You answer questions about a code map for someone semi-technical. You can Read, Grep and Glob the repo; you cannot edit anything.',
     '',
     ...questionContext(map, report, selection, question),
+    ...(map.view === 'journey' ? ['', '## This map is a journey', 'It shows only what a person sees and does. Anything you add must be the same: `kind` is `screen`, `action` or `choice`, and no boxes for what goes on behind the screen. Say that part in words.'] : []),
     ...(missing ? ['', `## Why the map alone wasn't enough\n${missing}`] : []),
     '',
     ...conversationSoFar(earlier),
@@ -221,11 +264,14 @@ export function explainerPrompt(
     ...ANSWER_STYLE,
     '- If the map doesn\'t cover it, explore. Put what you found in `add` (new areas, nodes, edges or absences with evidence, same rules as the map; ids must be new) only when it belongs to the flow this map follows and seeing it drawn helps answer the question. If the answer is a fact you can say in words, or about something beside the flow, leave `add` empty. Connect new boxes to existing ones with arrows where the code really connects them.',
     '- `moves`: `focus` on the most relevant id; `highlight` the ids that make up the path that answers the question.',
-    '- If they ask for a change, don\'t edit (you can\'t). Propose a `fix`: illuminate shows it to them on the map, and if they approve, illuminate applies exactly your edits and re-checks the map. So describe it as a proposal waiting for their approval, never as something for them to apply by hand.',
+    '- If they ask what a change would look like, how you would do something, or for a plan, without asking you to make it: draw it on the map as proposals (see Proposals). New boxes and arrows go in `add` with `proposed`; for a box or arrow already on the map that would change or go, put `{ "id": "<its id>", "proposed": { "kind": "change" | "remove", "note": "…" } }` in `propose`. Say in the answer what the proposal is; nothing is edited.',
+    '- If they ask you to make a change, don\'t edit (you can\'t). Propose a `fix`: illuminate shows it to them on the map, and if they approve, illuminate applies exactly your edits and re-checks the map. So describe it as a proposal waiting for their approval, never as something for them to apply by hand.',
     '- The `fix`: `summary` in plain words; `edits` as exact replacements (`find` copied exactly from the file, occurring once; `replace` is the new text); `creates` for new files. If the fix creates a connection between two boxes, fill `connects` with `from`, `to`, a short `label`, and `evidenceFile` + `evidenceText` (text that will appear in the new code). Keep fixes small and in the style of the surrounding code.',
     '- When the question is about what the person sees at a step ("what does this look like?", "where is that button?"), answer with a picture: put `{ "node": "<box id>", "screen": { … } }` in `screens`, for a box already on the map or one in `add` (see Screens below). Otherwise leave `screens` out: most questions don\'t need one.',
     '',
     ...EVIDENCE_RULES,
+    '',
+    ...PROPOSAL_RULES,
     '',
     ...SCREEN_RULES,
   ].join('\n');

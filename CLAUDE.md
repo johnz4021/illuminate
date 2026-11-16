@@ -15,6 +15,11 @@ artifact (link in both).
 - **One checker, every call site.** Publishing a map, every answer, reopening a saved map, and after a fix all call the
   same `check()`. Don't fork its logic.
 - **"Nothing does X" is a claim too.** Absences carry the search that proves them, and the checker reruns it.
+- **A proposal is not a claim, and the map says which is which.** A box or arrow may carry `proposed` (add, change,
+  remove). The checker computes where each stands from the repo (`pending` or `done`), the same way it computes every
+  status; a proposed addition is the only thing on a map that cites no code, and it must connect to a box that exists.
+- **Say what the check proves, and no more.** It proves every part is real code, not that the map is the whole story:
+  the top bar says "Every part is in the code", and a gap shows the search behind it and how many files it covered.
 - **The map format is the one-way door.** Change `packages/core/src/format.ts` deliberately, with tests. Everything
   else (generator, viewer, explainer) is replaceable behind it.
 - **Read-only unless approved.** Illuminate writes to a target repo only under `.illuminate/`, and edits product code only
@@ -67,6 +72,10 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
 
 ## How the pieces fit
 
+- **Scan** (`facts/src/scan.ts`): in a git repo `listRepoFiles` is what git tracks or would track, so nothing a
+  `.gitignore` names (virtual environments, build output) is read; elsewhere it walks the folder. The head start leaves
+  tests and fixtures out, and in a repo with more than 150 files of functions it drops the function list: illuminate
+  doesn't try to out-search Claude, it only tries not to get in the way.
 - **Make** (`server/src/maker.ts`): `headStart` (a `@illuminate/facts` scan, `hints.ts`) seeds the prompt, including every
   function name by file exactly as the checker knows it (`symbolIndex`) → `Agent` returns JSON against `MAP_SCHEMA` →
   `parseMap` → `check`. Unconfirmed claims get up to two repair rounds on the same session that return only changes
@@ -83,7 +92,8 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   linked back through `meta.parent`, or an answer in words, `wordsOnly`, that draws nothing). A selection on the map
   always means `code`, never `elsewhere`. Additions that don't pass `check` are dropped, not shown as unconfirmed.
 - **Viewer layout**: the top bar only says which map this is (switcher, New map, Stop) and, in words, whether it still
-  matches the code ("✓ Matches the code", or "6 parts of this map don't match the code"). The dock along
+  matches the code ("✓ Every part is in the code", or "6 parts of this map don't match the code"), with proposals
+  counted apart ("2 of 3 proposed changes done"). The dock along
   the bottom (`dock.tsx`) starts the walkthrough, and holds the question box while the conversation is closed; zoom is
   the wheel or trackpad. The walkthrough runs in a bubble on the map (`tour.tsx`), its text and buttons together; the
   panel steps aside meanwhile (unless it has an error or Claude's progress) and the camera leaves room for the bubble.
@@ -114,6 +124,21 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   Claude. The session's own tools are used, so read-only and the secret guard are instructions there, not enforced.
   A session started without `--dangerously-load-development-channels` drops that push without telling anyone, so a
   request nobody picks up says so on the map after 30 s and fails after 5 min (`NOT_PICKED_UP`, `NEVER_PICKED_UP`).
+- **Proposals** (`Proposal` in `core/src/format.ts`, `asProposal` in `core/src/check.ts`): asked how something would
+  change, Claude draws the code as it is and the change on top (`PROPOSAL_RULES` in `prompts.ts`). An addition is
+  `pending` until the facts show its `symbol`, call, request or import, then `done` and simply confirmed; a change or
+  removal is `pending` while its cited code is there and `done` once it isn't. So re-checking the same map after the
+  agent builds the change shows what got built, with nothing stored. A proposal the code already settles when the map
+  is being written (`settledProposals`) was misread: the maker sends it back and the explainer doesn't draw it. In an
+  answer, new proposed boxes go in `add` and existing ones are marked through `propose`. A `then` arrow or a box with
+  no `symbol` can't be detected as built and stays proposed. A sketch element may be `proposed`, and the checker drops that mark once the file has its text.
+- **Journeys** (`JOURNEY_RULES` in `prompts.ts`, `view: 'journey'` in the format, `layoutJourney` in `viewer/src/layout.ts`,
+  `JourneyNode` in `graph.tsx`): asked what a person sees or goes through, Claude draws only screens, actions and
+  choices (`kind`: `screen`, `action`, `choice`), with whatever runs behind a screen folded into one arrow. Every box
+  and arrow still cites code and is checked the same. The viewer draws it as a user flow: one line left to right, no
+  area boxes (a stage's name sits over its first box), a diamond for a choice, a pill for an action, and no code on
+  the boxes (select one to see it). `npm run preview` returns the journey fixture (`care-app.journey.json`) for a
+  question with "journey" or "go through" in it, or set `PREVIEW_QUESTION`.
 - **Screens** (`core/src/screens.ts`, `server/src/screens.ts`, `viewer/src/screen.tsx`): a box may carry an optional
   `screen`, and the model decides when one helps (`SCREEN_RULES` in `prompts.ts`). Three kinds: `capture` (a screenshot
   illuminate took itself with the installed Chrome, headless, clean profile, only of localhost pages or HTML files in

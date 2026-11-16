@@ -23,7 +23,14 @@ export function nameOf(map: CodeMap, id: string): string {
   return area?.label ?? id;
 }
 
-function checkOf(report: CheckReport | null, id: string): ClaimCheck | { status: 'confirmed' | 'unconfirmed'; reasons: string[]; evidence?: never } | null {
+/** What a proposal means for the person reading it, by kind and by whether the code shows it done. */
+const PROPOSAL_SAYS = {
+  add: { pending: 'Proposed: this isn’t in the code yet.', done: 'This was proposed, and the code now has it.' },
+  change: { pending: 'Proposed: this code would change.', done: 'This was proposed to change, and the code here has changed since.' },
+  remove: { pending: 'Proposed: this code would be removed.', done: 'This was proposed for removal, and it’s no longer in the code.' },
+} as const;
+
+function checkOf(report: CheckReport | null, id: string): ClaimCheck | { status: 'confirmed' | 'unconfirmed'; reasons: string[]; evidence?: never; proposal?: never } | null {
   if (!report) return null;
   return report.nodes[id] ?? report.edges[id] ?? (report.absences[id] ? { status: report.absences[id]!.status, reasons: report.absences[id]!.reasons } : null);
 }
@@ -43,8 +50,8 @@ function Chips({ map, ids, onPick }: { map: CodeMap; ids: { id: string; status: 
   return (
     <div className="chips">
       {ids.map(({ id, status }) => (
-        <button key={id} className={cls('chip', status !== 'confirmed' && 'chip-unconfirmed')} onClick={() => onPick(id)} title={status === 'confirmed' ? 'Confirmed against the code' : "Couldn't confirm against the code"}>
-          <span className={status === 'confirmed' ? 'tick' : 'qmark'}>{status === 'confirmed' ? '✓' : '?'}</span>
+        <button key={id} className={cls('chip', status === 'proposed' ? 'chip-proposed' : status !== 'confirmed' && 'chip-unconfirmed')} onClick={() => onPick(id)} title={status === 'confirmed' ? 'Confirmed against the code' : status === 'proposed' ? 'Part of a proposal, not in the code' : "Couldn't confirm against the code"}>
+          <span className={status === 'confirmed' ? 'tick' : status === 'proposed' ? 'pmark' : 'qmark'}>{status === 'confirmed' ? '✓' : status === 'proposed' ? '+' : '?'}</span>
           {nameOf(map, id)}
         </button>
       ))}
@@ -305,6 +312,9 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
   const evidence = node?.evidence ?? edge?.evidence ?? [];
   const evidenceChecks = c && 'evidence' in c && c.evidence ? c.evidence : [];
   const what = node ? 'Step' : edge ? 'Connection' : 'Missing connection';
+  const proposal = c?.proposal ?? null;
+  const note = (node ?? edge)?.proposed?.note;
+  const gapCheck = gap ? report?.absences[gap.id] ?? null : null;
   if (!open) {
     return (
       <div className={cls('selected-line', gap && 'selected-line-dead')}>
@@ -319,8 +329,21 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
       {compact && <button className="link-btn small selected-hide" onClick={() => setOpen(false)}>Hide details</button>}
       {node?.explain?.concept && <Markdown text={node.explain.concept} className="depth-text" />}
       {node && screenOf(report, node.id) && <ScreenView show={screenOf(report, node.id)!} name={node.name} />}
-      {gap && <p>Nothing in the code connects these. Searching <code>{gap.search.pattern}</code>{gap.search.paths ? <> in <code>{gap.search.paths.join(', ')}</code></> : null}: {report?.absences[gap.id]?.found ?? '?'} {report?.absences[gap.id]?.found === 1 ? 'match' : 'matches'}.</p>}
-      {c && c.status !== 'confirmed' && <div className="warn small">Couldn't confirm against the code: {c.reasons.join('; ')}</div>}
+      {proposal && (
+        <div className={cls('proposal-note', `proposal-note-${proposal.state}`)}>
+          <strong>{PROPOSAL_SAYS[proposal.kind][proposal.state]}</strong>
+          {note && <> {note}</>}
+        </div>
+      )}
+      {gap && gapCheck && (
+        <p>
+          {gapCheck.found > gap.matches
+            ? 'This may no longer be missing: the search below now finds something.'
+            : 'Nothing in the code connects these, going by this search.'}{' '}
+          Searched {gapCheck.searched ?? '?'} {gapCheck.searched === 1 ? 'file' : 'files'}{gap.search.paths ? <> in <code>{gap.search.paths.join(', ')}</code></> : ' (the whole repo)'} for <code>{gap.search.pattern}</code>: {gapCheck.found} {gapCheck.found === 1 ? 'match' : 'matches'}.
+        </p>
+      )}
+      {c && c.status === 'unconfirmed' && <div className="warn small">Couldn't confirm against the code: {c.reasons.join('; ')}</div>}
       {evidence.length > 0 && (
         <div className="basis">
           <div className="eyebrow">In the code</div>

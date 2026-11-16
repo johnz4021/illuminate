@@ -1,7 +1,7 @@
 // What the model must return, as JSON Schema for structured output. Derived from the map format's zod schemas, so the
 // two can't drift. Output is still validated with zod (and the map with `parseMap`) after it comes back.
 import { z } from 'zod';
-import { Absence, Area, CodeMap, Edge, Node, Screen } from '@illuminate/core';
+import { Absence, Area, CodeMap, Edge, Node, Proposal, Screen } from '@illuminate/core';
 
 /** Keywords some structured-output validators reject; zod and `parseMap` enforce them after the fact anyway. */
 const STRIP = new Set(['$schema', '$id', 'pattern', 'default', 'format']);
@@ -50,6 +50,8 @@ export const RawAnswer = z.object({
   moves: z.object({ focus: z.string().optional(), highlight: z.array(z.string()).optional() }).optional(),
   /** Pictures of the screen for boxes on the map (existing ones, or ones in `add`), when the question is about what the person sees. */
   screens: z.array(z.object({ node: z.string(), screen: Screen })).max(4).optional(),
+  /** Boxes or arrows already on the map that a suggested change would alter or remove (new ones go in `add`, marked there). */
+  propose: z.array(z.object({ id: z.string(), proposed: Proposal })).max(12).optional(),
   fix: RawFix.optional(),
 });
 

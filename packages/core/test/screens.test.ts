@@ -64,7 +64,7 @@ describe('a screenshot', () => {
       show: { kind: 'capture', capture: 'scr-test1', from: 'http://localhost:3000/patients', box: { x: 0.5, y: 0.2, w: 0.1, h: 0.1 } },
     });
     // Screens aren't claims: the count is the map's own.
-    expect(report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0 });
+    expect(report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0, proposals: { pending: 0, done: 0 } });
   });
 
   it('is left out when illuminate took no such capture, or its image was swapped', () => {

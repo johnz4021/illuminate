@@ -37,7 +37,7 @@ describe('the hand-written care-app map', () => {
   const report = check(load(), APP);
 
   it('is confirmed claim by claim: 8 boxes, 6 arrows, 1 missing connection', () => {
-    expect(report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0 });
+    expect(report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0, proposals: { pending: 0, done: 0 } });
   });
 
   it('proves boxes with symbols, and arrows with call and request facts, not just line text', () => {
@@ -49,7 +49,7 @@ describe('the hand-written care-app map', () => {
   });
 
   it('proves the missing listener by re-running its search: zero subscribers to patient.converted', () => {
-    expect(report.absences.miss).toEqual({ status: 'confirmed', found: 0, locations: [], reasons: [] });
+    expect(report.absences.miss).toMatchObject({ status: 'confirmed', found: 0, locations: [], reasons: [] });
   });
 
   it('marks every tour stop as backed by confirmed claims', () => {
@@ -145,5 +145,13 @@ describe('safety', () => {
   it('leaves secrets out of searches', () => {
     const map = variant((m) => { m.absences.push({ id: 'key', claim: 'No API keys in the repo', search: { pattern: 'EMAIL_API_KEY' }, matches: 0 }); });
     expect(check(map, APP).absences.key).toMatchObject({ status: 'confirmed', found: 0 });
+  });
+});
+
+describe('a journey map', () => {
+  it('is checked like any other: every screen, action and arrow against the code', () => {
+    const report = check(load(JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/care-app.journey.json', import.meta.url)), 'utf8'))), APP);
+    expect(report.summary).toMatchObject({ claims: 5, confirmed: 5, unconfirmed: 0 });
+    expect(report.screens?.j1?.status).toBe('confirmed');
   });
 });

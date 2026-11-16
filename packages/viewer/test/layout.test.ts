@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseMap } from '@illuminate/core';
-import { layoutKey, layoutMap, sides } from '../src/layout';
+import { layoutKey, layoutMap, rowOf, sides } from '../src/layout';
 
 const map = (() => {
   const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('../../core/test/fixtures/care-app.map.json', import.meta.url)), 'utf8')));
@@ -70,5 +70,68 @@ describe('layoutMap', () => {
     const renamed = { ...map, nodes: map.nodes.map((n) => (n.id === 's1' ? { ...n, name: 'Different words' } : n)) };
     expect(layoutKey(renamed)).toBe(layoutKey(map));
     expect(layoutKey(map, [{ id: 'fix-1', from: 's4', to: 'u1' }])).not.toBe(layoutKey(map));
+  });
+});
+
+describe('layoutMap on a journey', () => {
+  const journey = (() => {
+    const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('../../core/test/fixtures/care-app.journey.json', import.meta.url)), 'utf8')));
+    if (!r.ok) throw new Error(r.problems.join('\n'));
+    return r.map;
+  })();
+
+  it('lays the boxes out in one line, left to right, with no area boxes', async () => {
+    const l = await layoutMap(journey);
+    expect(l.flat).toBe(true);
+    expect(l.areas).toEqual({});
+    expect(l.nodes.j1!.x).toBeLessThan(l.nodes.j2!.x);
+    expect(l.nodes.j2!.x).toBeLessThan(l.nodes.j3!.x);
+    expect(sides(journey, l, 'j1', 'j2')).toEqual(['r', 'l']);
+  });
+
+  it('gives a choice more room than a screen, and lays out again when a box changes kind', async () => {
+    const forked = { ...journey, nodes: journey.nodes.map((n) => (n.id === 'j2' ? { ...n, kind: 'choice' as const } : n)) };
+    const l = await layoutMap(forked);
+    expect(l.nodes.j2!.h).toBeGreaterThan(l.nodes.j1!.h);
+    expect(layoutKey(forked)).not.toBe(layoutKey(journey));
+  });
+
+  it('wraps a long journey onto rows, and joins the rows from the bottom of one to the top of the next', async () => {
+    const base = journey.nodes[0]!;
+    const ids = Array.from({ length: 10 }, (_, i) => `k${i}`);
+    const long = {
+      ...journey,
+      nodes: ids.map((id) => ({ ...base, id, screen: undefined })),
+      edges: ids.slice(1).map((id, i) => ({ ...journey.edges[0]!, id: `ke${i}`, from: ids[i]!, to: id })),
+      tour: [],
+    };
+    const l = await layoutMap(long);
+    const rows = new Set(ids.map((id) => Math.round(l.nodes[id]!.y)));
+    expect(rows.size).toBeGreaterThan(1);
+    expect(l.width).toBeLessThan(1900);
+    const turn = ids.findIndex((id, i) => i > 0 && l.nodes[id]!.x < l.nodes[ids[i - 1]!]!.x);
+    expect(turn).toBeGreaterThan(0);
+    expect(sides(long, l, ids[turn - 1]!, ids[turn]!)).toEqual(['b', 't']);
+  });
+
+  it('gives a screen box with a picture more room, and still wraps a long journey of them', async () => {
+    const base = journey.nodes[0]!;
+    const ids = Array.from({ length: 8 }, (_, i) => `p${i}`);
+    const long = { ...journey, nodes: ids.map((id) => ({ ...base, id })), edges: ids.slice(1).map((id, i) => ({ ...journey.edges[0]!, id: `pe${i}`, from: ids[i]!, to: id })), tour: [] };
+    const plain = await layoutMap(long);
+    const l = await layoutMap(long, [], new Set(), new Set(ids));
+    expect(l.nodes.p0!.h).toBeGreaterThan(plain.nodes.p0!.h);
+    expect(l.width).toBeLessThan(1900);
+    expect(layoutKey(long, [], [], ids)).not.toBe(layoutKey(long));
+  });
+
+  it('starts a journey that loops back where the person starts, not in the middle of the loop', async () => {
+    const base = journey.nodes[0]!;
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const arrows = [['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', 'e'], ['e', 'f'], ['f', 'b']];
+    const loop = { ...journey, nodes: ids.map((id) => ({ ...base, id })), edges: arrows.map(([from, to], i) => ({ ...journey.edges[0]!, id: `le${i}`, from: from!, to: to! })), tour: [] };
+    const l = await layoutMap(loop);
+    const rank = (id: string) => rowOf(l, id) * 100_000 + l.nodes[id]!.x; // reading order: row, then column
+    for (let i = 1; i < ids.length; i++) expect(rank(ids[i - 1]!)).toBeLessThan(rank(ids[i]!));
   });
 });

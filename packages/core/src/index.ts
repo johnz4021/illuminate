@@ -11,6 +11,8 @@ export {
   Screen,
   ScreenElement,
   TourStop,
+  Proposal,
+  isAddition,
   isSafeRelativePath,
   parseMap,
   type MapAbsence,
@@ -19,7 +21,7 @@ export {
   type ParseResult,
 } from './format';
 export { addToMap, freshId, mapIds, patchMap, removeAbsences, removeFromMap, slugify, type MapAdditions, type MapPatch } from './edit';
-export { check, type AbsenceCheck, type CheckOptions, type CheckReport, type ClaimCheck, type EvidenceCheck, type Proof, type Status, type TourCheck } from './check';
+export { check, settledProposals, type AbsenceCheck, type CheckOptions, type CheckReport, type ClaimCheck, type EvidenceCheck, type Proof, type ProposalCheck, type Status, type TourCheck } from './check';
 export { MAX_FILE_BYTES, SECRET_GLOBS, createRepoReader, isSecretPath, type ReadResult, type RepoReader } from './repo';
 export {
   Capture,

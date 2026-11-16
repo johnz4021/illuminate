@@ -27,7 +27,7 @@ describe('makeMap', () => {
     const agent = scriptedAgent([() => CARE_MAP]);
     const progress: string[] = [];
     const r = await makeMap({ root, question: 'What happens when a patient converts?', agent, onProgress: (p) => progress.push(p.text) });
-    expect(r.report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0 });
+    expect(r.report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0, proposals: { pending: 0, done: 0 } });
     expect(r.map.question).toBe('What happens when a patient converts?'); // the person's words, not the model's
     expect(r.rounds).toBe(1);
     const prompt = agent.calls[0]!.prompt;
@@ -50,7 +50,7 @@ describe('makeMap', () => {
     const agent = scriptedAgent([() => broken, () => ({ nodes: [fixedU2] })]);
     const r = await makeMap({ root, question: 'q', agent });
     expect(r.rounds).toBe(2);
-    expect(r.report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0 });
+    expect(r.report.summary).toEqual({ claims: 15, confirmed: 15, unconfirmed: 0, proposals: { pending: 0, done: 0 } });
     expect(r.map.nodes.map((n) => n.id)).toEqual(CARE_MAP.nodes.map((n: any) => n.id)); // u2 replaced in place, the rest kept
     expect(r.map.tour).toEqual(careMap().tour);
     expect(agent.calls[1]!.resume).toBe('session-1');

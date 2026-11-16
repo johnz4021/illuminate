@@ -58,10 +58,48 @@ export function ScreenView({ show, name }: { show: ScreenShow; name: string }) {
     <figure className="screen">
       <div className="screen-sketch" role="img" aria-label={`Rough sketch of the screen at “${name}”`}>
         {show.elements.map((e, i) => (
-          <span key={i} className={cls('sk', `sk-${e.kind}`, hl === e.text.trim().toLowerCase() && 'sk-mark')}>{e.kind === 'image' ? `▧ ${e.text}` : e.text}</span>
+          <span key={i} className={cls('sk', `sk-${e.kind}`, e.proposed && 'sk-proposed', hl === e.text.trim().toLowerCase() && 'sk-mark')} title={e.proposed ? 'Proposed: not on the screen yet' : undefined}>
+            {e.kind === 'image' ? `▧ ${e.text}` : e.text}
+            {e.proposed && <i className="sk-new">proposed</i>}
+          </span>
         ))}
       </div>
-      <figcaption className="muted small">Rough sketch from {show.file}, not a screenshot</figcaption>
+      <figcaption className="muted small">
+        {show.elements.every((e) => e.proposed) ? `Rough sketch of a proposed screen (${show.file})` : `Rough sketch from ${show.file}, not a screenshot`}
+        {show.elements.some((e) => e.proposed) && !show.elements.every((e) => e.proposed) && ' · violet parts are proposed'}
+      </figcaption>
     </figure>
+  );
+}
+
+/** The same picture small enough to sit on a journey box: the top of a sketch, or a screenshot zoomed on its mark. */
+export function ScreenThumb({ show, name }: { show: ScreenShow; name: string }) {
+  if (show.kind === 'sketch') {
+    const hl = show.highlight?.trim().toLowerCase();
+    const shown = show.elements.slice(0, 4);
+    return (
+      <div className="thumb thumb-sketch" role="img" aria-label={`Rough sketch of the screen at “${name}”`}>
+        {shown.map((e, i) => (
+          <span key={i} className={cls('sk', `sk-${e.kind}`, e.proposed && 'sk-proposed', hl === e.text.trim().toLowerCase() && 'sk-mark')}>
+            {e.kind === 'image' ? `▧ ${e.text}` : e.text}
+          </span>
+        ))}
+        {show.elements.length > shown.length && <span className="thumb-more">+{show.elements.length - shown.length} more</span>}
+      </div>
+    );
+  }
+  if (show.kind === 'image') {
+    return <div className="thumb thumb-image"><img src={screenUrl(show)} alt={`Image used at “${name}”`} loading="lazy" /></div>;
+  }
+  const box = show.box;
+  return (
+    <div className="thumb thumb-shot">
+      <img
+        src={screenUrl(show)}
+        alt={`The screen at “${name}”`}
+        loading="lazy"
+        style={box ? { transform: 'scale(1.8)', transformOrigin: `${pct(box.x + box.w / 2)} ${pct(box.y + box.h / 2)}` } : undefined}
+      />
+    </div>
   );
 }

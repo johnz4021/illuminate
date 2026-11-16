@@ -1,5 +1,6 @@
 // Whole-repo scan: every non-ignored file, facts for code and `.sql` files, calls settled across the repo. Node-only.
 // What to skip is a list of globs (plus node_modules and .git, always).
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import type { FileFacts } from './contracts/facts';
 import { attachResolver, attachRoot, carryResolver } from './facts/context';
@@ -21,7 +22,11 @@ export type RepoScan = { files: string[]; fileFacts: Record<string, FileFacts>; 
 export const CODE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts'];
 
 /** Never scanned: illuminate's own output and common build output. */
-export const DEFAULT_IGNORE = ['.illuminate/**', '.codemap/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.next/**'];
+export const DEFAULT_IGNORE = [
+  '.illuminate/**', '.codemap/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.next/**',
+  // Installed packages, for repos that aren't in git (in git, ignored files are never listed).
+  '**/venv/**', '**/.venv/**', '**/site-packages/**', '**/__pycache__/**',
+];
 
 export function isCodeFile(path: string): boolean {
   return CODE_EXTENSIONS.some((ext) => path.endsWith(ext));
@@ -65,8 +70,45 @@ export function withExtra(exists: Exists, paths: readonly string[]): Exists {
   return carryResolver((path: string) => extra.has(path) || exists(path), exists);
 }
 
-/** Every non-ignored file under `root`, sorted. */
+/**
+ * The files under `root` that git tracks or would track (nothing `.gitignore` leaves out), or null when `root` isn't in
+ * a git work tree or git lists nothing there (a folder the repo around it ignores).
+ */
+function gitFiles(root: string): string[] | null {
+  let out: string;
+  try {
+    out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 512 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  const files = out.split('\0').filter(Boolean);
+  return files.length ? files : null;
+}
+
+/**
+ * Every non-ignored file under `root`, sorted. In a git repo that is what git tracks or would track, so installed
+ * packages, virtual environments and build output a `.gitignore` names are never read; elsewhere the folder is walked.
+ */
 export function listRepoFiles(root: string, ignore: readonly string[] = DEFAULT_IGNORE): string[] {
+  const listed = gitFiles(root);
+  if (listed) {
+    return listed
+      .filter((path) => {
+        if (path.split('/').some((seg) => seg === 'node_modules' || seg === '.git') || matchesAny(ignore, path)) return false;
+        // Git also lists links, submodules and files deleted but not yet committed; only real files are read.
+        try {
+          return fs.lstatSync(`${root}/${path}`).isFile();
+        } catch {
+          return false;
+        }
+      })
+      .sort();
+  }
   const files: string[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir ? `${root}/${dir}` : root, { withFileTypes: true })) {

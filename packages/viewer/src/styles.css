@@ -1,7 +1,7 @@
 /* illuminate viewer.
    Paper and ink: a cool off-white canvas with dots, white cards outlined in ink, thin arrows labelled in plain text.
    Lamp yellow is the brand and what's lit (the walkthrough and what you selected). Red = gaps, green = confirmed and
-   proposed fixes, violet = Claude is working. The card you're focused on is dark, like a note pinned to the map. */
+   proposed fixes, violet = Claude is working, and what Claude proposes (dashed until the code has it). The card you're focused on is dark, like a note pinned to the map. */
 :root {
   --bg: #f3f4f1;
   --paper: #fbfbf9;
@@ -350,7 +350,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .screen-mark { position: absolute; border: 2px solid var(--lamp); border-radius: 5px; box-shadow: 0 0 0 3px var(--lamp-glow), 0 0 0 9999px rgba(0, 0, 0, 0.16); pointer-events: none; }
 .screen-image { display: grid; place-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 .screen-image img { max-width: 100%; max-height: 180px; }
-.screen-sketch { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 12px; border: 1.5px dashed var(--line-strong); border-radius: 8px; background: var(--paper); }
+.screen-sketch { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 12px; border: 1.5px dashed var(--line-strong); border-radius: 8px; background: var(--paper); color: var(--ink); }
 .sk { font-size: 13px; max-width: 100%; overflow-wrap: anywhere; }
 .sk-heading { font-weight: 700; font-size: 15px; }
 .sk-button { border: 1.5px solid var(--ink); border-radius: 6px; padding: 3px 12px; font-weight: 600; }
@@ -359,9 +359,64 @@ body.resizing { cursor: col-resize; user-select: none; }
 .sk-image { color: var(--muted); }
 .sk-mark { outline: 2px solid var(--lamp); outline-offset: 3px; box-shadow: 0 0 0 6px var(--lamp-glow); border-radius: 5px; }
 
-/* Big picture / Steps: how much detail the map shows (overview.ts). */
-.level { position: absolute; top: 14px; left: 14px; z-index: 6; display: flex; padding: 3px; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); }
-.level button { border: 0; background: none; color: var(--muted); font: 600 13px/1 var(--font); padding: 7px 13px; border-radius: 999px; cursor: pointer; }
-.level button:hover { color: var(--ink); }
-.level button.on { background: var(--ink); color: var(--surface); }
-.level button:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
+/* Proposals: what the map suggests adding, changing or removing. Violet and dashed while the code doesn't have it;
+   once the checker finds it done, an addition is drawn like any other step, with a green badge. */
+.badge-proposal { font-size: 11px; font-weight: 600; color: var(--ai); background: var(--ai-soft); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.pmark { color: var(--ai); font-weight: 700; flex: none; }
+.step.proposal-pending { border-color: var(--ai); }
+.step.proposal-add.proposal-pending { border-style: dashed; background: color-mix(in srgb, var(--ai-soft) 55%, var(--surface)); }
+.step.proposal-add.proposal-pending .step-code { border-style: dashed; border-color: color-mix(in srgb, var(--ai) 45%, transparent); }
+.step.proposal-remove .step-name { text-decoration: line-through; text-decoration-color: var(--ai); color: var(--muted); }
+.step.proposal-remove.proposal-done { border-style: dashed; border-color: var(--line-strong); opacity: 0.6; }
+.step.proposal-change.proposal-done { border-style: dashed; border-color: var(--line-strong); }
+.step.proposal-done .badge-proposal { color: var(--ok); background: var(--ok-soft); }
+.react-flow__edge.link.proposal-pending .react-flow__edge-path { stroke: var(--ai); }
+.react-flow__edge.link.proposal-add.proposal-pending .react-flow__edge-path { stroke-width: 1.8; stroke-dasharray: 6 5; }
+.react-flow__edge.link.proposal-remove .react-flow__edge-path { stroke-dasharray: 2 5; }
+.react-flow__edge.link.proposal-remove.proposal-done .react-flow__edge-path { opacity: 0.45; }
+.link-label.proposal-pending { color: var(--ai); }
+.link-label.proposal-remove .link-text { text-decoration: line-through; }
+.link-label.proposal-done .pmark { color: var(--ok); }
+.map-status.proposals { color: var(--ai); background: var(--ai-soft); border-radius: 999px; padding: 4px 11px; font-weight: 500; }
+.chip.chip-proposed { border-style: dashed; border-color: color-mix(in srgb, var(--ai) 55%, transparent); }
+.proposal-note { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--ai); background: var(--ai-soft); border-radius: 0 6px 6px 0; font-size: 13px; line-height: 1.45; }
+.proposal-note.proposal-note-done { border-left-color: var(--ok); background: var(--ok-soft); }
+.card-focus .proposal-note, .card-selected .proposal-note { color: var(--ink); }
+.sk.sk-proposed { outline: 1.5px dashed var(--ai); outline-offset: 3px; border-radius: 5px; color: var(--ai); display: inline-flex; align-items: baseline; gap: 8px; }
+.sk-button.sk-proposed { border-color: var(--ai); }
+.sk-new { font: 600 10px/1 inherit; font-style: normal; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ai); }
+
+/* A journey map: a user flow, left to right. Boxes carry only their words; the shape says what each one is. */
+.step.jstep { padding: 8px 14px; border-radius: 12px; gap: 3px; justify-items: center; text-align: center; }
+.j-name { font-weight: 600; font-size: 14.5px; line-height: 1.25; letter-spacing: -0.01em; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; position: relative; }
+.j-note { font-size: 11px; color: var(--muted); position: relative; }
+.j-stage { position: absolute; left: 2px; bottom: calc(100% + 9px); font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+.j-tags { position: absolute; top: -10px; right: 8px; display: flex; gap: 5px; z-index: 1; }
+.j-tags:empty { display: none; }
+.j-q { width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--surface); border: 1.5px dashed var(--line-strong); color: var(--muted); }
+.step.j-action { border-radius: 999px; background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface)); }
+.step.j-action.hl { background: var(--lamp-soft); }
+.step.j-outside { border-style: dashed; }
+.step.j-choice, .step.j-choice:hover, .step.j-choice.hl, .step.j-choice.selected, .step.j-choice.unconfirmed, .step.j-choice.proposal { background: transparent; border-color: transparent; box-shadow: none; padding: 0 44px; }
+.j-diamond { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.j-diamond polygon { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; transition: fill 0.2s; }
+.j-choice:hover .j-diamond polygon { stroke-width: 2.6; }
+.j-choice.hl .j-diamond polygon { fill: var(--lamp-soft); stroke: var(--lamp); stroke-width: 2.6; }
+.j-choice.selected .j-diamond polygon { stroke: var(--ink); stroke-width: 2.6; filter: drop-shadow(0 0 5px var(--lamp-glow)); }
+.j-choice.unconfirmed .j-diamond polygon { stroke-dasharray: 5 4; stroke: var(--line-strong); }
+.j-choice.proposal-pending .j-diamond polygon { stroke: var(--ai); fill: var(--ai-soft); }
+.j-choice.proposal-add.proposal-pending .j-diamond polygon { stroke-dasharray: 6 5; }
+.j-choice .j-name { font-size: 13.5px; }
+.journey .link-label { max-width: 128px; white-space: normal; text-align: center; line-height: 1.25; }
+/* A journey box with the picture of its screen on it. */
+.step.jstep.j-pictured { padding: 8px 8px 7px; align-content: start; gap: 6px; justify-items: stretch; }
+.thumb { height: 132px; border-radius: 7px; overflow: hidden; border: 1px solid var(--line); background: var(--paper); color: var(--ink); text-align: left; }
+.thumb-sketch { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 9px 10px; border-style: dashed; border-color: var(--line-strong); }
+.thumb-sketch .sk { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+.thumb-sketch .sk-heading { font-size: 12.5px; }
+.thumb-sketch .sk-button { padding: 1px 9px; }
+.thumb-sketch .sk-field { padding: 1px 8px; }
+.thumb-more { font-size: 10.5px; color: var(--muted); }
+.thumb-image { display: grid; place-items: center; padding: 8px; }
+.thumb-image img { max-width: 100%; max-height: 100%; }
+.thumb-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }

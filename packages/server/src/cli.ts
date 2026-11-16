@@ -83,8 +83,10 @@ async function main() {
     const report = check(parsed.map, args.repo);
     console.log(`${report.summary.confirmed} of ${report.summary.claims} claims confirmed`);
     for (const [kind, group] of [['box', report.nodes], ['arrow', report.edges], ['missing connection', report.absences]] as const) {
-      for (const [id, c] of Object.entries(group)) if (c.status !== 'confirmed') console.log(`  ✗ ${kind} ${id}: ${c.reasons.join('; ')}`);
+      for (const [id, c] of Object.entries(group)) if (c.status === 'unconfirmed') console.log(`  ✗ ${kind} ${id}: ${c.reasons.join('; ')}`);
     }
+    const { pending, done } = report.summary.proposals;
+    if (pending + done) console.log(`${done} of ${pending + done} proposed changes are done in the code`);
     process.exitCode = report.summary.unconfirmed ? 1 : 0;
     return;
   }

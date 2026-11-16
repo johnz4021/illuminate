@@ -2,14 +2,14 @@
 // citations, with no tools: quick, and enough for many questions. If that isn't enough, Claude explores the repo. Anything
 // it adds must pass the checker or it isn't drawn; a requested change comes back as a validated fix proposal, never an edit.
 import * as crypto from 'node:crypto';
-import { addToMap, check, createRepoReader, mapIds, parseMap, removeFromMap, type CheckReport, type CodeMap } from '@illuminate/core';
+import { addToMap, check, createRepoReader, mapIds, parseMap, removeFromMap, settledProposals, type CheckReport, type CodeMap, type Status } from '@illuminate/core';
 import type { Agent, Progress } from './agent';
 import { proposeFix, type FixProposal } from './fixes';
 import { explainerPrompt, quickAnswerPrompt, type EarlierTurn, type SelectionLine } from './prompts';
 import { ANSWER_SCHEMA, QUICK_ANSWER_SCHEMA, RawAnswer, RawQuickAnswer } from './schemas';
 
 export type Selection = { nodes?: string[]; edges?: string[]; absences?: string[] };
-export type RefStatus = { id: string; status: 'confirmed' | 'unconfirmed' | 'unknown' };
+export type RefStatus = { id: string; status: Status | 'unknown' };
 export type Answer = {
   id: string;
   question: string;
@@ -18,8 +18,10 @@ export type Answer = {
   concept: string;
   refs: RefStatus[];
   moves: { focus: string | null; highlight: string[] };
-  /** Ids drawn on the map because of this answer (all confirmed). */
+  /** Ids drawn on the map because of this answer (all confirmed, or proposals the checker placed). */
   added: string[];
+  /** Boxes and arrows already on the map that this answer marked as to change or remove. Missing on answers saved before proposals existed. */
+  proposed?: string[];
   /** Boxes whose picture of the screen this answer set (all confirmed). Missing on answers saved before screens existed. */
   screens?: string[];
   /** What was found but not drawn, and why; problems with a proposed fix. */
@@ -210,7 +212,7 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
   const parsed = RawAnswer.safeParse(res.output);
   if (!parsed.success) throw new Error(`Claude's answer couldn't be read: ${parsed.error.issues.slice(0, 3).map((i) => i.message).join('; ')}`);
   // An answer in words draws nothing and proposes nothing, whatever came back.
-  const raw = o.wordsOnly ? { ...parsed.data, add: undefined, fix: undefined, screens: undefined } : parsed.data;
+  const raw = o.wordsOnly ? { ...parsed.data, add: undefined, fix: undefined, screens: undefined, propose: undefined } : parsed.data;
 
   const problems: string[] = [];
   let map = o.map;
@@ -226,8 +228,53 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
     }
   }
 
-  // Screens the answer puts on boxes, old or new. One the checker can't confirm is taken back off (the box keeps
-  // whatever screen it had), and the answer says so.
+  // A new box may have come with its own screen; if that one didn't check out, say so (the box is still drawn).
+  let report = check(map, o.root);
+  for (const id of added) {
+    const c = report.screens[id];
+    if (c && c.status !== 'confirmed') problems.push(`No screen shown for "${map.nodes.find((n) => n.id === id)?.name ?? id}": ${c.reasons.join('; ')}`);
+  }
+  // A proposal the code already settles was misread (adding what exists): like an unconfirmed claim, it isn't drawn.
+  const misread = new Set(settledProposals(report).map((p) => p.id));
+  const failed = added.filter((id) => statusOf(report, id) === 'unconfirmed' || misread.has(id));
+  if (failed.length) {
+    for (const id of failed) {
+      const c = report.nodes[id] ?? report.edges[id] ?? report.absences[id];
+      problems.push(misread.has(id) ? `Not drawn, ${id} was proposed as new but the code already has it` : `Not drawn, couldn't confirm ${id}: ${c?.reasons.join('; ') ?? 'unknown'}`);
+    }
+    map = removeFromMap(map, new Set(failed));
+    report = check(map, o.root);
+    const live = mapIds(map);
+    added = added.filter((id) => live.has(id));
+  }
+
+  // Marking what's already on the map as to change or remove. It only sticks on a claim the checker confirms: a
+  // proposal about code that isn't there says nothing.
+  const marked: string[] = [];
+  for (const p of raw.propose ?? []) {
+    const name = map.nodes.find((n) => n.id === p.id)?.name ?? p.id;
+    if (p.proposed.kind === 'add' || added.includes(p.id)) {
+      problems.push(`Not marked as a proposal: "${name}" (new boxes and arrows carry their own \`proposed\`)`);
+      continue;
+    }
+    if (statusOf(report, p.id) !== 'confirmed' || !(report.nodes[p.id] ?? report.edges[p.id])) {
+      problems.push(`Not marked as a proposal: "${name}" isn't a confirmed box or arrow on this map`);
+      continue;
+    }
+    const mark = <T extends { id: string }>(items: T[]): T[] => items.map((x) => (x.id === p.id ? { ...x, proposed: p.proposed } : x));
+    const next = parseMap({ ...map, nodes: mark(map.nodes), edges: mark(map.edges) });
+    if (!next.ok) {
+      problems.push(`Not marked as a proposal: ${next.problems.join('; ')}`);
+      continue;
+    }
+    map = next.map;
+    marked.push(p.id);
+  }
+  if (marked.length) report = check(map, o.root);
+
+  // Screens the answer puts on boxes, old or new. They come after proposals are marked, since a proposed screen needs
+  // its box marked. One the checker can't confirm is taken back off (the box keeps whatever screen it had), and the
+  // answer says so.
   const wanted = (raw.screens ?? []).filter((s) => {
     if (map.nodes.some((n) => n.id === s.node)) return true;
     problems.push(`No screen shown: there is no box "${s.node}"`);
@@ -247,23 +294,7 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
       problems.push(`No screen shown for "${map.nodes.find((n) => n.id === s.node)?.name ?? s.node}": ${why}`);
     }
   }
-  // A new box may have come with its own screen; if that one didn't check out, say so (the box is still drawn).
-  let report = check(map, o.root);
-  for (const id of added) {
-    const c = report.screens[id];
-    if (c && c.status !== 'confirmed') problems.push(`No screen shown for "${map.nodes.find((n) => n.id === id)?.name ?? id}": ${c.reasons.join('; ')}`);
-  }
-  const failed = added.filter((id) => statusOf(report, id) === 'unconfirmed');
-  if (failed.length) {
-    for (const id of failed) {
-      const c = report.nodes[id] ?? report.edges[id] ?? report.absences[id];
-      problems.push(`Not drawn, couldn't confirm ${id}: ${c?.reasons.join('; ') ?? 'unknown'}`);
-    }
-    map = removeFromMap(map, new Set(failed));
-    report = check(map, o.root);
-    const live = mapIds(map);
-    added = added.filter((id) => live.has(id));
-  }
+  if (screened.length) report = check(map, o.root);
 
   let fix: FixProposal | null = null;
   if (raw.fix) {
@@ -284,6 +315,7 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
       highlight: (raw.moves?.highlight ?? []).filter((id) => live.has(id)),
     },
     added,
+    proposed: marked,
     screens: screened.filter((id) => live.has(id)),
     problems,
     fix,

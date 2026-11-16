@@ -9,8 +9,35 @@ import type { CodeMap } from './types';
 export const NODE_W = 232;
 export const NODE_H = 96;
 export type Box = { x: number; y: number; w: number; h: number };
-/** Area boxes are absolute; node boxes are relative to their area. */
-export type Layout = { areas: Record<string, Box>; nodes: Record<string, Box>; width: number; height: number };
+/** Area boxes are absolute; node boxes are relative to their area. `flat` (a journey): no area boxes, node boxes absolute. */
+export type Layout = {
+  areas: Record<string, Box>;
+  nodes: Record<string, Box>;
+  width: number;
+  height: number;
+  flat?: boolean;
+  /** A wrapped journey: where each row starts, top to bottom. */
+  rowTops?: number[];
+};
+
+/** Which row of a wrapped journey a box is on (0 when it isn't wrapped). */
+export function rowOf(layout: Layout, id: string): number {
+  const y = layout.nodes[id]?.y ?? 0;
+  const tops = layout.rowTops ?? [];
+  let row = 0;
+  for (const [i, top] of tops.entries()) if (y >= top - 1) row = i;
+  return row;
+}
+
+/** Room a journey box gives the picture of its screen, drawn above its name. */
+export const PICTURE_H = 132;
+
+/** A journey's boxes are sized by what they are; a choice is a diamond, so it needs room around its words. */
+export function journeySize(kind: string, pictured = false): { w: number; h: number } {
+  if (kind === 'choice') return { w: 196, h: 132 };
+  if (kind === 'action') return { w: 196, h: 60 };
+  return pictured ? { w: 232, h: 64 + PICTURE_H } : { w: 196, h: 72 };
+}
 export type ExtraEdge = { id: string; from: string; to: string };
 export type Side = 't' | 'r' | 'b' | 'l';
 
@@ -77,7 +104,9 @@ function withoutIds(map: CodeMap, ids: ReadonlySet<string>): CodeMap {
  * Lay the map out. `added` names what answers added since it was first drawn: the rest is laid out exactly as it would
  * be without them, and the additions are fitted around it.
  */
-export async function layoutMap(map: CodeMap, extra: readonly ExtraEdge[] = [], added: ReadonlySet<string> = new Set()): Promise<Layout> {
+export async function layoutMap(map: CodeMap, extra: readonly ExtraEdge[] = [], added: ReadonlySet<string> = new Set(), pictured: ReadonlySet<string> = new Set()): Promise<Layout> {
+  // A journey is one line of boxes, so anything added is simply laid out with the rest.
+  if (map.view === 'journey') return layoutJourney(map, extra, pictured);
   const addedNodes = map.nodes.filter((n) => added.has(n.id));
   if (!addedNodes.length) return layoutWhole(map, extra);
 
@@ -141,6 +170,59 @@ export async function layoutMap(map: CodeMap, extra: readonly ExtraEdge[] = [], 
   return { areas, nodes, width: Math.max(0, ...boxes.map((b) => b.x + b.w)), height: Math.max(0, ...boxes.map((b) => b.y + b.h)) };
 }
 
+/** A journey wider than this is wrapped onto rows, read like lines of text, so it uses the height of the screen too. */
+const JOURNEY_WRAP_OVER = 1900;
+/** Room between one row of a wrapped journey and the next: enough for the arrow that carries on to the next row. */
+export const JOURNEY_ROW_GAP = 130;
+
+/**
+ * A journey: every box in one graph, left to right in the order the arrows go, with room between for arrow labels.
+ * A long one is cut into rows here (not by ELK, whose wrapping scatters a journey that loops back or has two starts):
+ * the columns stay in the order ELK gave them, and each row starts again from the left, like a line of text.
+ */
+async function layoutJourney(map: CodeMap, extra: readonly ExtraEdge[], pictured: ReadonlySet<string>): Promise<Layout> {
+  const engine = await getElk();
+  const out = await engine.layout({
+    id: 'root',
+    // A journey that loops back (a screen that leads to an earlier one) is opened at the arrow going against the order
+    // the boxes were written in, so it still starts where the person starts.
+    layoutOptions: { ...LAYERED, 'elk.direction': 'RIGHT', 'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER', 'elk.layered.spacing.nodeNodeBetweenLayers': '176', 'elk.spacing.nodeNode': '56', 'elk.spacing.componentComponent': '72' },
+    children: map.nodes.map((n) => ({ id: n.id, width: journeySize(n.kind, pictured.has(n.id)).w, height: journeySize(n.kind, pictured.has(n.id)).h })),
+    edges: links(map, extra).map((l): ElkExtendedEdge => ({ id: l.id, sources: [l.from], targets: [l.to] })),
+  });
+  const nodes: Record<string, Box> = {};
+  for (const c of out.children ?? []) nodes[c.id] = { x: c.x ?? 0, y: c.y ?? 0, w: c.width ?? 0, h: c.height ?? 0 };
+  const width = out.width ?? 0;
+  if (width <= JOURNEY_WRAP_OVER) return { areas: {}, nodes, width, height: out.height ?? 0, flat: true };
+
+  // Columns: boxes whose middles line up. Rows: runs of columns that fit the width, about the same number in each.
+  const columns: { left: number; right: number; ids: string[] }[] = [];
+  for (const [id, b] of Object.entries(nodes).sort((a, b) => a[1].x + a[1].w / 2 - (b[1].x + b[1].w / 2))) {
+    const last = columns[columns.length - 1];
+    if (last && b.x + b.w / 2 < last.right) {
+      last.ids.push(id);
+      last.left = Math.min(last.left, b.x);
+      last.right = Math.max(last.right, b.x + b.w);
+    } else columns.push({ left: b.x, right: b.x + b.w, ids: [id] });
+  }
+  const rowCount = Math.ceil(width / JOURNEY_WRAP_OVER);
+  const perRow = Math.ceil(columns.length / rowCount);
+  let top = 0;
+  let widest = 0;
+  const rowTops: number[] = [];
+  for (let r = 0; r * perRow < columns.length; r++) {
+    const row = columns.slice(r * perRow, (r + 1) * perRow);
+    const ids = row.flatMap((c) => c.ids);
+    const left = row[0]!.left;
+    const up = Math.min(...ids.map((id) => nodes[id]!.y));
+    rowTops.push(top);
+    for (const id of ids) nodes[id] = { ...nodes[id]!, x: nodes[id]!.x - left, y: nodes[id]!.y - up + top };
+    top = Math.max(...ids.map((id) => nodes[id]!.y + nodes[id]!.h)) + JOURNEY_ROW_GAP;
+    widest = Math.max(widest, row[row.length - 1]!.right - left);
+  }
+  return { areas: {}, nodes, width: widest, height: top - JOURNEY_ROW_GAP, flat: true, rowTops };
+}
+
 async function layoutWhole(map: CodeMap, extra: readonly ExtraEdge[]): Promise<Layout> {
   const engine = await getElk();
   const areaOf = new Map(map.nodes.map((n) => [n.id, n.area]));
@@ -178,6 +260,22 @@ async function layoutWhole(map: CodeMap, extra: readonly ExtraEdge[]): Promise<L
 
 /** Which sides an arrow leaves and enters by: down within an area, across between areas side by side. */
 export function sides(map: CodeMap, layout: Layout, from: string, to: string): [Side, Side] {
+  if (layout.flat) {
+    const mid = (id: string) => {
+      const n = layout.nodes[id];
+      return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : { x: 0, y: 0 };
+    };
+    const dx = mid(to).x - mid(from).x;
+    const dy = mid(to).y - mid(from).y;
+    // Across, the way a journey reads; up or down only between boxes stacked in the same column.
+    if (Math.abs(dx) < 40) return dy >= 0 ? ['b', 't'] : ['t', 'b'];
+    // Between rows of a wrapped journey: out of the bottom and in at the top, so the arrow can run along the gap
+    // between the rows.
+    const rows = rowOf(layout, to) - rowOf(layout, from);
+    // Going back up it leaves by the side, since another box of its own row may sit right above it.
+    if (rows) return rows > 0 ? ['b', 't'] : ['r', 'b'];
+    return dx >= 0 ? ['r', 'l'] : ['l', 'r'];
+  }
   const areaOf = (id: string) => map.nodes.find((n) => n.id === id)?.area ?? '';
   const abs = (id: string) => {
     const a = layout.areas[areaOf(id)];
@@ -193,8 +291,9 @@ export function sides(map: CodeMap, layout: Layout, from: string, to: string): [
 }
 
 /** A key that changes only when the layout would: which boxes exist, where they live, and what connects them. */
-export function layoutKey(map: CodeMap, extra: readonly ExtraEdge[] = [], added: readonly string[] = []): string {
+export function layoutKey(map: CodeMap, extra: readonly ExtraEdge[] = [], added: readonly string[] = [], pictured: readonly string[] = []): string {
   return JSON.stringify([
+    map.view === 'journey' ? [map.nodes.map((n) => n.kind), [...pictured].sort()] : null,
     [...added].sort(),
     map.areas.map((a) => a.id),
     map.nodes.map((n) => `${n.id}@${n.area}`),

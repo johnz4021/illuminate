@@ -15,16 +15,27 @@ import {
   type CallFact,
   type FileFacts,
 } from '@illuminate/facts';
-import type { CodeMap, Evidence, MapAbsence, MapEdge, MapNode } from './format';
+import { isAddition, type CodeMap, type Evidence, type MapAbsence, type MapEdge, type MapNode, type Proposal } from './format';
 import { createRepoReader, isSecretPath, type RepoReader } from './repo';
 import { checkScreen, type ScreenCheck } from './screens';
 
-export type Status = 'confirmed' | 'unconfirmed';
+/**
+ * Whether the code backs a claim. `proposed` is only for a box or arrow that carries a proposal: it isn't in the code,
+ * and the proposal says it shouldn't be (an addition not built yet, or a change or removal already made).
+ */
+export type Status = 'confirmed' | 'unconfirmed' | 'proposed';
+/**
+ * Where a proposal stands, computed from the repo like everything else. `pending`: still to do (an addition the code
+ * doesn't have, a change or removal whose cited code is still there). `done`: the code now has the addition, or no
+ * longer has what was to change or go.
+ */
+export type ProposalCheck = { kind: Proposal['kind']; state: 'pending' | 'done' };
 /** `fact`: the extracted code facts back the claim. `text`: the cited lines say what the claim says. */
 export type Proof = 'fact' | 'text';
 export type EvidenceCheck = { file: string; line: number; ok: boolean; foundAt: number | null; reason: string | null };
-export type ClaimCheck = { status: Status; proof: Proof | null; evidence: EvidenceCheck[]; reasons: string[] };
-export type AbsenceCheck = { status: Status; found: number; locations: { file: string; line: number }[]; reasons: string[] };
+export type ClaimCheck = { status: Status; proof: Proof | null; evidence: EvidenceCheck[]; reasons: string[]; proposal?: ProposalCheck };
+/** `searched` is how many files the search covered, so a person can judge whether it looked widely enough. */
+export type AbsenceCheck = { status: Exclude<Status, 'proposed'>; found: number; searched: number; locations: { file: string; line: number }[]; reasons: string[] };
 export type TourCheck = { status: 'ok' | 'mentions-unconfirmed'; unconfirmed: string[] };
 export type CheckReport = {
   nodes: Record<string, ClaimCheck>;
@@ -33,7 +44,8 @@ export type CheckReport = {
   tour: Record<string, TourCheck>;
   /** By box id, for boxes that carry a screen. Not counted as claims: a screen that fails is simply not shown. */
   screens: Record<string, ScreenCheck>;
-  summary: { claims: number; confirmed: number; unconfirmed: number };
+  /** `claims` counts what the map says about the code as it is; what is only proposed is counted under `proposals`. */
+  summary: { claims: number; confirmed: number; unconfirmed: number; proposals: { pending: number; done: number } };
 };
 export type CheckOptions = {
   /** Extra globs to leave out of searches (build output and `.illuminate/` are always left out). */
@@ -71,16 +83,38 @@ export function check(map: CodeMap, root: string, options: CheckOptions = {}): C
   const tour: Record<string, TourCheck> = {};
   for (const t of map.tour) {
     const unconfirmed = [
-      ...(t.focus.nodes ?? []).filter((id) => nodes[id]?.status !== 'confirmed'),
-      ...(t.focus.edges ?? []).filter((id) => edges[id]?.status !== 'confirmed'),
+      ...(t.focus.nodes ?? []).filter((id) => nodes[id]?.status === 'unconfirmed'),
+      ...(t.focus.edges ?? []).filter((id) => edges[id]?.status === 'unconfirmed'),
       ...(t.focus.absences ?? []).filter((id) => absences[id]?.status !== 'confirmed'),
     ];
     tour[t.id] = { status: unconfirmed.length ? 'mentions-unconfirmed' : 'ok', unconfirmed };
   }
 
   const all = [...Object.values(nodes), ...Object.values(edges), ...Object.values(absences)];
-  const confirmed = all.filter((c) => c.status === 'confirmed').length;
-  return { nodes, edges, absences, tour, screens, summary: { claims: all.length, confirmed, unconfirmed: all.length - confirmed } };
+  const count = (status: Status) => all.filter((c) => c.status === status).length;
+  const proposals = [...Object.values(nodes), ...Object.values(edges)].flatMap((c) => (c.proposal ? [c.proposal] : []));
+  const confirmed = count('confirmed');
+  const unconfirmed = count('unconfirmed');
+  return {
+    nodes, edges, absences, tour, screens,
+    summary: {
+      claims: confirmed + unconfirmed,
+      confirmed,
+      unconfirmed,
+      proposals: { pending: proposals.filter((p) => p.state === 'pending').length, done: proposals.filter((p) => p.state === 'done').length },
+    },
+  };
+}
+
+/**
+ * Proposals the code has already settled: an addition it has, or a change or removal whose cited code isn't there.
+ * On a map made earlier that is the proposal carried out. In a map being written it is a mistake (the code was misread),
+ * so the maker and the explainer send these back instead of drawing them.
+ */
+export function settledProposals(report: CheckReport): { id: string; what: 'box' | 'arrow'; kind: Proposal['kind']; reasons: string[] }[] {
+  const of = (what: 'box' | 'arrow', group: Record<string, ClaimCheck>) =>
+    Object.entries(group).flatMap(([id, c]) => (c.proposal?.state === 'done' ? [{ id, what, kind: c.proposal.kind, reasons: c.reasons }] : []));
+  return [...of('box', report.nodes), ...of('arrow', report.edges)];
 }
 
 /** Facts per file, extracted on demand and cached for one check. */
@@ -143,7 +177,27 @@ function result(evidence: EvidenceCheck[], reasons: string[], proof: Proof): Cla
   return reasons.length ? { status: 'unconfirmed', proof: null, evidence, reasons } : { status: 'confirmed', proof, evidence, reasons };
 }
 
+/**
+ * A box or arrow that carries a proposal, read from what the ordinary check found. An addition is checked without its
+ * evidence (it has none): once the code has it, it is simply confirmed, and until then it is `proposed`, not a failed
+ * claim. A change or removal is the other way round: its cited code must be there while it is pending, and once it
+ * isn't, the proposal is done.
+ */
+function asProposal(kind: Proposal['kind'], c: ClaimCheck): ClaimCheck {
+  const inCode = c.status === 'confirmed';
+  if (kind === 'add') return inCode ? { ...c, proposal: { kind, state: 'done' } } : { ...c, status: 'proposed', proposal: { kind, state: 'pending' } };
+  return inCode ? { ...c, proposal: { kind, state: 'pending' } } : { ...c, status: 'proposed', proposal: { kind, state: 'done' } };
+}
+
 function checkNode(n: MapNode, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
+  if (!n.proposed) return checkNodeNow(n, repo, facts, window);
+  if (!isAddition(n)) return asProposal(n.proposed.kind, checkNodeNow(n, repo, facts, window));
+  // An addition is in the code once the function it names exists. Without a name there is nothing to look for.
+  if (!n.symbol) return asProposal('add', { status: 'unconfirmed', proof: null, evidence: [], reasons: ['it names no `symbol`, so the code can\'t show whether it has been built'] });
+  return asProposal('add', checkNodeNow({ ...n, evidence: [] }, repo, facts, window));
+}
+
+function checkNodeNow(n: MapNode, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
   const evidence = n.evidence.map((e) => checkEvidence(repo, e, window));
   const reasons = evidenceReasons(evidence);
   if (reasons.length || !n.symbol) return result(evidence, reasons, 'text');
@@ -153,6 +207,18 @@ function checkNode(n: MapNode, repo: RepoReader, facts: Facts, window: number): 
 }
 
 function checkEdge(e: MapEdge, byId: ReadonlyMap<string, MapNode>, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
+  if (!e.proposed) return checkEdgeNow(e, byId, repo, facts, window);
+  if (!isAddition(e)) return asProposal(e.proposed.kind, checkEdgeNow(e, byId, repo, facts, window));
+  // An added arrow is in the code once the facts show the call, request or import it stands for. A `then` arrow, or one
+  // between boxes that name no function, is proven only by cited lines, and an addition has none yet.
+  const from = byId.get(e.from);
+  const to = byId.get(e.to);
+  const provable = e.kind !== 'then' && !!from && !!to && (e.kind !== 'calls' || (!!from.symbol && !!to.symbol)) && [from, to].every((n) => n.symbol || n.evidence.length);
+  if (!provable) return asProposal('add', { status: 'unconfirmed', proof: null, evidence: [], reasons: ['the code facts can\'t show whether this arrow has been built (it isn\'t a call, request or import between named functions)'] });
+  return asProposal('add', checkEdgeNow({ ...e, evidence: [] }, byId, repo, facts, window));
+}
+
+function checkEdgeNow(e: MapEdge, byId: ReadonlyMap<string, MapNode>, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
   const evidence = e.evidence.map((x) => checkEvidence(repo, x, window));
   const reasons = evidenceReasons(evidence);
   const from = byId.get(e.from);
@@ -201,14 +267,16 @@ function checkAbsence(a: MapAbsence, repo: RepoReader, files: readonly string[])
   try {
     pattern = new RegExp(a.search.regex ? a.search.pattern : a.search.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
   } catch {
-    return { status: 'unconfirmed', found: 0, locations: [], reasons: ['the search pattern is not a valid regular expression'] };
+    return { status: 'unconfirmed', found: 0, searched: 0, locations: [], reasons: ['the search pattern is not a valid regular expression'] };
   }
   let found = 0;
+  let searched = 0;
   const locations: { file: string; line: number }[] = [];
   for (const file of files) {
     if (a.search.paths && !matchesAny(a.search.paths, file)) continue;
     const text = repo.text(file);
     if (text === null) continue;
+    searched++;
     text.split('\n').forEach((line, i) => {
       const n = line.match(pattern)?.length ?? 0;
       if (!n) return;
@@ -217,5 +285,7 @@ function checkAbsence(a: MapAbsence, repo: RepoReader, files: readonly string[])
     });
   }
   const reasons = found === a.matches ? [] : [`the search finds ${found} ${found === 1 ? 'match' : 'matches'}; the map says ${a.matches}`];
-  return { status: reasons.length ? 'unconfirmed' : 'confirmed', found, locations, reasons };
+  // A search that read no files proves nothing, whatever it claims to have found.
+  if (!searched) reasons.push(a.search.paths ? `no files match ${a.search.paths.join(', ')}, so nothing was searched` : 'there were no files to search');
+  return { status: reasons.length ? 'unconfirmed' : 'confirmed', found, searched, locations, reasons };
 }

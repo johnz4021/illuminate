@@ -15,6 +15,10 @@ and ask about it, and approve fixes that illuminate applies and re-checks.
 - The user asks how something works across several files: "what happens when…", "how does X reach Y", "where does Z
   get triggered".
 - The user is about to change code they don't understand yet and wants to see it first.
+- The user asks how a change would look before it's made ("how would we add…", "plan this"): the map shows the code as
+  it is, with the proposal drawn on top. Once the change is built, reopening the map shows which parts are done.
+- The user asks what someone sees or goes through in the app (a user journey): the map follows the screens, each tied
+  to the code behind it.
 - The user asks for a map, diagram, graph or walkthrough of part of the code.
 
 Don't use it for a question about a single line or function; answer that directly.

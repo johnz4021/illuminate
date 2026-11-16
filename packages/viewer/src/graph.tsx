@@ -11,6 +11,7 @@ import {
   Position,
   ReactFlow,
   getBezierPath,
+  getSmoothStepPath,
   useReactFlow,
   useStore,
   type Edge,
@@ -18,9 +19,10 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
-import { layoutKey, layoutMap, sides, type ExtraEdge, type Layout } from './layout';
+import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout } from './layout';
 import type { Sel, View } from './state';
-import type { CheckReport, CodeMap, FixProposal } from './types';
+import { ScreenThumb } from './screen';
+import type { CheckReport, CodeMap, FixProposal, ScreenShow } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
 
@@ -28,21 +30,37 @@ type StepData = {
   name: string;
   sub: string;
   kind: string;
+  /** False only for a claim about the code that the checker couldn't confirm; a proposal is never that. */
   confirmed: boolean;
+  /** Set when the box is a proposal: what it would do, and whether the code has caught up (the checker's verdict). */
+  proposal: Proposed | null;
   /** It has a confirmed picture of the screen, shown when the box is selected or the walkthrough stops on it. */
   screen: boolean;
   selected: boolean;
   hl: boolean;
   dim: boolean;
   fresh: boolean;
+  /** Set on a journey map: the box is drawn as part of a user flow, with no code on it. */
+  journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null };
   onClick: (additive: boolean) => void;
 };
+type Proposed = { kind: 'add' | 'change' | 'remove'; state: 'pending' | 'done' };
+/** What a proposal is called on the map, by kind, while it is pending and once the code shows it done. */
+const PROPOSAL: Record<Proposed['kind'], { pending: string; done: string; mark: string; title: string }> = {
+  add: { pending: 'Proposed', done: 'Now in the code', mark: '+', title: 'Proposed: not in the code yet' },
+  change: { pending: 'Would change', done: 'Changed', mark: '~', title: 'Proposed: this code would change' },
+  remove: { pending: 'Would be removed', done: 'Removed', mark: '−', title: 'Proposed: this code would be removed' },
+};
+const proposalClass = (p: Proposed | null | undefined) => p && `proposal proposal-${p.kind} proposal-${p.state}`;
 type AreaData = { label: string; note: string | null; dim: boolean };
 type LinkData = {
   label: string;
   /** Sideways bend in px, so arrows between the same two steps don't hide each other. */
   offset?: number;
   variant: 'edge' | 'absence' | 'ghost';
+  /** On a wrapped journey, an arrow between rows runs along the gap between them, at this height. */
+  wrapY?: number;
+  proposal?: Proposed | null;
   confirmed: boolean;
   hl: boolean;
   dim: boolean;
@@ -74,10 +92,11 @@ function Handles() {
 }
 
 function StepNode({ data }: NodeProps<StepNodeT>) {
+  if (data.journey) return <JourneyNode data={data} />;
   return (
     // `nopan`: pressing on a step must not start a canvas pan, or the pan can swallow the click.
     <div
-      className={cls('step', 'nopan', `kind-${data.kind}`, !data.confirmed && 'unconfirmed', data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
+      className={cls('step', 'nopan', `kind-${data.kind}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
       onClick={(e) => {
         e.stopPropagation();
         data.onClick(e.shiftKey || e.metaKey);
@@ -85,18 +104,55 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
     >
       <Handles />
       {/* Plain steps need no label; the other kinds say what they are. */}
-      {(KIND[data.kind] || data.fresh || data.screen) && (
+      {(KIND[data.kind] || data.fresh || data.screen || data.proposal) && (
         <div className="step-head">
-          {KIND[data.kind] && <><i className="step-mark" aria-hidden="true">{KIND[data.kind]![1]}</i>{KIND[data.kind]![0]}</>}
+          {data.proposal && <span className="badge-proposal">{PROPOSAL[data.proposal.kind][data.proposal.state]}</span>}
+          {KIND[data.kind] && !data.proposal && <><i className="step-mark" aria-hidden="true">{KIND[data.kind]![1]}</i>{KIND[data.kind]![0]}</>}
           {data.screen && <span className="badge-screen" title="Select this step to see the screen">▣ Screen</span>}
           {data.fresh && <span className="badge-new">New</span>}
         </div>
       )}
       <div className="step-name" title={data.name}>{data.name}</div>
-      <div className="step-code" title={data.confirmed ? 'Confirmed against the code' : "The checker couldn't confirm this against the code"}>
-        <span className={data.confirmed ? 'tick' : 'qmark'}>{data.confirmed ? '✓' : '?'}</span>
+      <div className="step-code" title={data.proposal?.state === 'pending' ? PROPOSAL[data.proposal.kind].title : data.confirmed ? 'Confirmed against the code' : "The checker couldn't confirm this against the code"}>
+        {data.proposal?.state === 'pending' && data.proposal.kind === 'add'
+          ? <span className="pmark">+</span>
+          : data.proposal?.state === 'done' && data.proposal.kind !== 'add'
+            ? <span className="pmark">{PROPOSAL[data.proposal.kind].mark}</span>
+            : <span className={data.confirmed ? 'tick' : 'qmark'}>{data.confirmed ? '✓' : '?'}</span>}
         <span className="step-sub">{data.sub}</span>
       </div>
+    </div>
+  );
+}
+
+/** A box on a journey: only its words, shaped by what it is. The code behind it shows when it is selected. */
+function JourneyNode({ data }: { data: StepData }) {
+  const j = data.journey!;
+  const p = data.proposal;
+  return (
+    <div
+      className={cls('step', 'jstep', 'nopan', `j-${j.shape}`, j.show && 'j-pictured', j.outside && 'j-outside', !data.confirmed && 'unconfirmed', proposalClass(p), data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
+      style={{ width: j.w, height: j.h }}
+      onClick={(e) => {
+        e.stopPropagation();
+        data.onClick(e.shiftKey || e.metaKey);
+      }}
+    >
+      <Handles />
+      {j.stage && <div className="j-stage">{j.stage}</div>}
+      {j.shape === 'choice' && (
+        <svg className="j-diamond" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polygon points="50,1 99,50 50,99 1,50" vectorEffect="non-scaling-stroke" />
+        </svg>
+      )}
+      <div className="j-tags">
+        {p && <span className="badge-proposal">{PROPOSAL[p.kind][p.state]}</span>}
+        {!data.confirmed && <span className="j-q" title="The checker couldn't confirm this against the code">?</span>}
+        {data.fresh && <span className="badge-new">New</span>}
+      </div>
+      {j.show && <ScreenThumb show={j.show} name={data.name} />}
+      <div className="j-name" title={data.name}>{data.name}</div>
+      {j.outside && j.shape !== 'choice' && <div className="j-note">Outside the app</div>}
     </div>
   );
 }
@@ -122,8 +178,36 @@ function bentPath(sx: number, sy: number, tx: number, ty: number, offset: number
   return [`M ${sx} ${sy} Q ${cx} ${cy} ${tx} ${ty}`, (sx + tx) / 2 + nx * offset, (sy + ty) / 2 + ny * offset];
 }
 
+/** A path through these points with rounded corners, and the middle of its longest level stretch for the label. */
+function cornered(points: [number, number][], r = 18): [string, number, number] {
+  let d = `M ${points[0]![0]} ${points[0]![1]}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1]!;
+    const [x, y] = points[i]!;
+    const [nx, ny] = points[i + 1]!;
+    const a = Math.min(r, Math.hypot(x - px, y - py) / 2);
+    const b = Math.min(r, Math.hypot(nx - x, ny - y) / 2);
+    const ux = Math.sign(x - px), uy = Math.sign(y - py), vx = Math.sign(nx - x), vy = Math.sign(ny - y);
+    d += ` L ${x - ux * a} ${y - uy * a} Q ${x} ${y} ${x + vx * b} ${y + vy * b}`;
+  }
+  const last = points[points.length - 1]!;
+  d += ` L ${last[0]} ${last[1]}`;
+  let best: [number, number, number] = [0, points[0]![0], points[0]![1]];
+  for (let i = 1; i < points.length; i++) {
+    const [px, py] = points[i - 1]!;
+    const [x, y] = points[i]!;
+    if (py === y && Math.abs(x - px) > best[0]) best = [Math.abs(x - px), (px + x) / 2, y];
+  }
+  return [d, best[1], best[2]];
+}
+
 function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, data }: EdgeProps<LinkEdgeT>) {
-  const [path, lx, ly] = data?.offset
+  const [path, lx, ly] = data?.wrapY !== undefined && sourcePosition === Position.Right
+    // Back up to an earlier row: out of the side, up to the gap between the rows, along it, and in from below.
+    ? cornered([[sourceX, sourceY], [sourceX + 30, sourceY], [sourceX + 30, data.wrapY], [targetX, data.wrapY], [targetX, targetY]])
+    : data?.wrapY !== undefined
+    ? getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 18, centerY: data.wrapY })
+    : data?.offset
     ? bentPath(sourceX, sourceY, targetX, targetY, data.offset)
     : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   if (!data) return null;
@@ -133,7 +217,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
       <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={18} />
       <EdgeLabelRenderer>
         <div
-          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
+          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
           style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
           onClick={(e) => {
             e.stopPropagation();
@@ -141,6 +225,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
           }}
         >
           {data.variant === 'absence' && <span className="gap-q" aria-hidden="true">?</span>}
+          {data.proposal && <span className="pmark" title={data.proposal.state === 'done' ? PROPOSAL[data.proposal.kind].done : PROPOSAL[data.proposal.kind].title}>{data.proposal.state === 'done' && data.proposal.kind === 'add' ? '✓' : PROPOSAL[data.proposal.kind].mark}</span>}
           <span className="link-text">{data.label}</span>
           {!data.confirmed && data.variant === 'edge' && <span className="q"> ?</span>}
         </div>
@@ -189,13 +274,18 @@ export function MapGraph(p: GraphProps) {
   // A proposed fix's arrow is drawn only while both of its ends are (a hidden layer can hide one).
   const ghost = p.ghost?.connects && p.map.nodes.some((n) => n.id === p.ghost!.connects!.from) && p.map.nodes.some((n) => n.id === p.ghost!.connects!.to) ? p.ghost : null;
   const extra: ExtraEdge[] = useMemo(() => (ghost?.connects ? [{ id: ghost.id, from: ghost.connects.from, to: ghost.connects.to }] : []), [ghost]);
-  const key = layoutKey(p.map, extra, p.added);
+  // On a journey, a screen box with a confirmed picture shows it on the map, so it needs the room.
+  const pictured = useMemo(
+    () => (p.map.view === 'journey' ? p.map.nodes.filter((n) => n.kind !== 'action' && n.kind !== 'choice' && p.report?.screens?.[n.id]?.status === 'confirmed').map((n) => n.id) : []),
+    [p.map, p.report],
+  );
+  const key = layoutKey(p.map, extra, p.added, pictured);
   const [layout, setLayout] = useState<{ key: string; layout: Layout } | null>(null);
   const rf = useReactFlow();
 
   useEffect(() => {
     let live = true;
-    void layoutMap(p.map, extra, new Set(p.added)).then((l) => live && setLayout({ key, layout: l }));
+    void layoutMap(p.map, extra, new Set(p.added), new Set(pictured)).then((l) => live && setLayout({ key, layout: l }));
     return () => {
       live = false;
     };
@@ -225,26 +315,39 @@ export function MapGraph(p: GraphProps) {
         zIndex: 0,
       }];
     });
+    // On a journey, the first box of each stage (the one furthest left) carries the stage's name.
+    const stageAt = new Map<string, string>();
+    if (l.flat) {
+      for (const a of p.map.areas) {
+        const first = p.map.nodes
+          .filter((n) => n.area === a.id && l.nodes[n.id])
+          .sort((x, y) => l.nodes[x.id]!.x - l.nodes[y.id]!.x || l.nodes[x.id]!.y - l.nodes[y.id]!.y)[0];
+        if (first) stageAt.set(first.id, a.label);
+      }
+    }
     const stepNodes: StepNodeT[] = p.map.nodes.flatMap((n) => {
       const box = l.nodes[n.id];
       if (!box) return [];
-      const sub = n.symbol ? n.symbol.slice(n.symbol.indexOf('#') + 1) : `${n.evidence[0]!.file.split('/').pop()}:${n.evidence[0]!.line}`;
+      // A proposed addition may cite nothing and name no function yet.
+      const at = n.evidence[0];
+      const sub = n.symbol ? n.symbol.slice(n.symbol.indexOf('#') + 1) : at ? `${at.file.split('/').pop()}:${at.line}` : 'not in the code yet';
       return [{
         id: n.id,
         type: 'step' as const,
-        parentId: `area:${n.area}`,
-        extent: 'parent' as const,
+        ...(l.flat ? {} : { parentId: `area:${n.area}`, extent: 'parent' as const }),
         position: { x: box.x, y: box.y },
         data: {
           name: n.name,
           sub,
           kind: n.kind,
-          confirmed: p.report?.nodes[n.id]?.status === 'confirmed',
+          confirmed: !!p.report && p.report.nodes[n.id]?.status !== 'unconfirmed',
+          proposal: p.report?.nodes[n.id]?.proposal ?? null,
           screen: p.report?.screens?.[n.id]?.status === 'confirmed',
           selected: sel.nodes.includes(n.id),
           hl: !!lit?.has(n.id),
           dim: !!lit && !lit.has(n.id),
           fresh: p.fresh.includes(n.id),
+          ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null } }),
           onClick: (additive) => p.onSelect('nodes', n.id, additive),
         },
         draggable: false,
@@ -252,7 +355,7 @@ export function MapGraph(p: GraphProps) {
       }];
     });
     return [...areaNodes, ...stepNodes];
-  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect]);
+  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured]);
 
   const edges = useMemo((): LinkEdgeT[] => {
     if (!layout) return [];
@@ -262,8 +365,22 @@ export function MapGraph(p: GraphProps) {
       const [a, b] = sides(p.map, layout.layout, from, to);
       return { sourceHandle: `s${a}`, targetHandle: `t${b}` };
     };
+    // Arrows between rows of a wrapped journey share the gap between those rows; each gets its own height in it.
+    const inGap = new Map<number, number>();
+    const wrapY = (from: string, to: string): number | undefined => {
+      const tops = layout.layout.rowTops;
+      const a = rowOf(layout.layout, from);
+      const b = rowOf(layout.layout, to);
+      if (!tops || a === b) return undefined;
+      // Down: the gap above the row it arrives in. Back up: the gap above the row it leaves.
+      const lower = Math.max(a, b);
+      const used = inGap.get(lower) ?? 0;
+      inGap.set(lower, used + 1);
+      return tops[lower]! - JOURNEY_ROW_GAP / 2 + (used % 2 ? 1 : -1) * Math.ceil(used / 2) * 18;
+    };
     const out: LinkEdgeT[] = p.map.edges.map((e) => {
-      const confirmed = p.report?.edges[e.id]?.status === 'confirmed';
+      const confirmed = !!p.report && p.report.edges[e.id]?.status !== 'unconfirmed';
+      const proposal = p.report?.edges[e.id]?.proposal ?? null;
       const isHl = on(e.id) || (!!lit && lit.has(e.from) && lit.has(e.to) && !hl);
       const variant = 'edge' as const;
       return {
@@ -272,12 +389,14 @@ export function MapGraph(p: GraphProps) {
         target: e.to,
         ...handles(e.from, e.to),
         type: 'link' as const,
-        className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
-        markerEnd: marker(on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
+        className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
+        markerEnd: marker(proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
         zIndex: 2,
         data: {
           label: e.label,
+          wrapY: wrapY(e.from, e.to),
           variant,
+          proposal,
           confirmed,
           hl: isHl,
           dim: !!hl && !on(e.id),
@@ -386,6 +505,7 @@ export function MapGraph(p: GraphProps) {
 
   return (
     <ReactFlow
+      className={layout?.layout.flat ? 'journey' : undefined}
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
