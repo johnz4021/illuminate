@@ -31,6 +31,8 @@ export const EdgeKind = z.enum(['calls', 'request', 'imports', 'then']);
  * - `capture`: a screenshot illuminate took itself (`capture` is its id under `.illuminate/screens/`).
  * - `image`: an image file in the repo that the box's cited code uses (an icon, a sprite).
  * - `sketch`: a rough wireframe of the visible things in a markup `file`; every element's text must be in that file.
+ * - `wireframe`: one of the map's `pages`, drawn whole, with the part this box is about marked: `page` is its id,
+ *   `region` the part of it, and `highlight` the text of one element in that region.
  * `highlight` is the text of the thing on screen this box is about (the button's label), which gets marked.
  * On a box that carries `proposed`, a sketch may hold elements that are `proposed` too: the screen as it would be.
  */
@@ -41,11 +43,38 @@ export const ScreenElement = z.object({
   proposed: z.boolean().optional(),
 });
 export const Screen = z.object({
-  kind: z.enum(['capture', 'image', 'sketch']),
+  kind: z.enum(['capture', 'image', 'sketch', 'wireframe']),
   capture: Id.optional(),
+  /** For a wireframe: the id of one of the map's `pages`, and of the region of it this box is about. */
+  page: Id.optional(),
+  region: Id.optional(),
   file: z.string().min(1).optional(),
   elements: z.array(ScreenElement).min(1).max(12).optional(),
   highlight: z.string().min(1).max(80).optional(),
+});
+
+/** Where a region sits on its page. Five fixed places, so a page can be drawn without the map describing a layout. */
+export const Slot = z.enum(['top', 'left', 'main', 'right', 'bottom']);
+
+/** One visible part of a page (a top bar, a side panel), from one file. Every element's text must be in that file. */
+export const PageRegion = z.object({
+  id: Id,
+  slot: Slot,
+  label: z.string().min(1).max(40),
+  file: z.string().min(1),
+  elements: z.array(ScreenElement).max(6).default([]),
+});
+
+/**
+ * A page of the app, defined once on the map and drawn as a wireframe on every box that happens on it. `file` is the
+ * page's own component or template; each region's file must be that file or one it brings in. Where things sit is the
+ * map's reading of the markup, and can't be checked: the drawing says it is approximate.
+ */
+export const Page = z.object({
+  id: Id,
+  name: z.string().min(1).max(60),
+  file: z.string().min(1),
+  regions: z.array(PageRegion).min(1).max(8),
 });
 
 /**
@@ -140,6 +169,8 @@ export const CodeMap = z.object({
    * so the comparison stays the same after later commits.
    */
   since: GitRef.optional(),
+  /** The pages boxes show as wireframes (`screen.kind: 'wireframe'`). */
+  pages: z.array(Page).optional(),
   areas: z.array(Area).min(1),
   nodes: z.array(Node).min(1),
   edges: z.array(Edge).default([]),
@@ -150,6 +181,9 @@ export const CodeMap = z.object({
 export type Evidence = z.output<typeof Evidence>;
 export type Screen = z.output<typeof Screen>;
 export type Proposal = z.output<typeof Proposal>;
+export type Page = z.output<typeof Page>;
+export type PageRegion = z.output<typeof PageRegion>;
+export type Slot = z.output<typeof Slot>;
 export type MapNode = z.output<typeof Node>;
 export type MapEdge = z.output<typeof Edge>;
 export type MapAbsence = z.output<typeof Absence>;
@@ -193,6 +227,13 @@ export function parseMap(input: unknown): ParseResult {
   const edges = ids('edge', map.edges);
   const absences = ids('absence', map.absences);
   ids('tour stop', map.tour);
+  const pages = new Map((map.pages ?? []).map((p) => [p.id, p]));
+  ids('page', map.pages ?? []);
+  for (const p of map.pages ?? []) {
+    ids(`page "${p.id}" region`, p.regions);
+    for (const f of [p.file, ...p.regions.map((r) => r.file)]) if (!isSafeRelativePath(f)) problems.push(`page "${p.id}": file "${f}" must be a path inside the repo`);
+    if (p.regions.some((r) => r.elements.some((e) => e.proposed))) problems.push(`page "${p.id}": a page shows the screen as it is, so its elements can't be \`proposed\` (use a sketch on the proposed box for that)`);
+  }
 
   const evidence = (where: string, item: { evidence: readonly Evidence[]; proposed?: Proposal }) => {
     if (!item.evidence.length && !isAddition(item)) problems.push(`${where}: cite at least one line of code in \`evidence\` (only a proposed addition goes without)`);
@@ -211,7 +252,13 @@ export function parseMap(input: unknown): ParseResult {
     evidence(`node "${n.id}"`, n);
     const sc = n.screen;
     if (sc?.kind === 'capture' && !sc.capture) problems.push(`node "${n.id}": a capture screen needs the \`capture\` id illuminate_capture returned`);
-    if (sc && sc.kind !== 'capture' && (!sc.file || !isSafeRelativePath(sc.file))) problems.push(`node "${n.id}": a ${sc.kind} screen needs \`file\`, a path inside the repo`);
+    if (sc && (sc.kind === 'image' || sc.kind === 'sketch') && (!sc.file || !isSafeRelativePath(sc.file))) problems.push(`node "${n.id}": a ${sc.kind} screen needs \`file\`, a path inside the repo`);
+    if (sc?.kind === 'wireframe') {
+      const page = pages.get(sc.page ?? '');
+      if (!page) problems.push(`node "${n.id}": a wireframe screen needs \`page\`, the id of one of the map's \`pages\`${sc.page ? ` (there is no page "${sc.page}")` : ''}`);
+      else if (sc.region && !page.regions.some((r) => r.id === sc.region)) problems.push(`node "${n.id}": page "${page.id}" has no region "${sc.region}"`);
+      if (sc.highlight && !sc.region) problems.push(`node "${n.id}": a wireframe's \`highlight\` needs the \`region\` the element is in`);
+    }
     if (sc?.kind === 'sketch' && !sc.elements) problems.push(`node "${n.id}": a sketch screen needs \`elements\``);
     if (!n.proposed && sc?.elements?.some((e) => e.proposed)) problems.push(`node "${n.id}": only a box that carries \`proposed\` can have proposed screen elements`);
     gone(`node "${n.id}"`, n);

@@ -89,10 +89,12 @@ is sent anywhere. Useful for UI work and demos.
 ### Screens on the map
 
 When a flow starts from something you can see (a button, a form), Claude can put a picture of that screen on the box,
-with the button marked. It decides case by case; backend-only maps get none. If your app is already running on
-localhost, or the repo has an HTML file, illuminate screenshots it with the Chrome you already have, in a clean profile
-(pages behind a login show their login page, and Claude then falls back). Otherwise Claude can show an image file from
-the repo or a rough sketch of a component. illuminate never starts your app, and a screen is only shown if the checker
+with the button marked. It decides case by case; backend-only maps get none. The usual picture is a wireframe of the
+whole page, drawn from the code: its parts (top bar, sidebar, main area) with the one the step is about marked.
+Nothing has to be running for that. illuminate checks that each part really belongs to the page and that its text is
+in the code; where the parts sit is Claude's reading, so the wireframe says it is approximate. If your app is already
+running on localhost, or the repo has an HTML file, illuminate can screenshot it instead with the Chrome you already
+have, in a clean profile (pages behind a login show their login page, and Claude then falls back). illuminate never starts your app, and a screen is only shown if the checker
 can tie it to the code. Screenshots are saved under `.illuminate/screens/`.
 
 ## How it works

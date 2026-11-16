@@ -21,7 +21,7 @@ export function TourBubble({ map, report, stop: i, onTour, onAsk }: TourBubblePr
   const last = i === map.tour.length - 1;
   const screen = firstScreen(map, report, stop.focus.nodes ?? []);
   return (
-    <section className="card card-focus tour-bubble" aria-label="Walkthrough" aria-live="polite">
+    <section className={cls('card card-focus tour-bubble', screen?.show.kind === 'wireframe' && 'tour-wide')} aria-label="Walkthrough" aria-live="polite">
       <button className="card-close" aria-label="Leave the walkthrough" title="Leave the walkthrough (Esc)" onClick={() => onTour(null)}>×</button>
       <div className="tour-head">
         <span className="eyebrow">Walkthrough, stop {i + 1} of {map.tour.length}</span>

@@ -13,6 +13,7 @@ import { StopButton, Stopped } from './stop';
 import { Panel } from './panel';
 import { PanelResizer, usePanelWidth } from './resize';
 import { TourBubble } from './tour';
+import { WIREFRAME_PANEL_W, firstScreen, screenOf } from './screen';
 import { addedIds, currentView, initialState, reducer, selSize, visibleMap, type Sel } from './state';
 import type { CheckReport } from './types';
 
@@ -202,6 +203,12 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   // (the next stop clears that pick, and the panel steps aside again).
   const hasPanel = !s.map || !!s.error || !!s.job || s.shown !== null || selSize(s.selection) > 0;
   const panel = hasPanel && (!touring || !!s.error || s.job?.kind === 'ask' || selSize(s.selection) > 0);
+  // A page's wireframe needs room to keep the shape of a page. While one is showing, the walkthrough bubble is wider,
+  // and the panel is at least wide enough for it (never narrower than the person set it, and the map keeps some room).
+  const tourWide = touring && firstScreen(s.map!, s.report, s.map!.tour[s.tour!]?.focus.nodes ?? [])?.show.kind === 'wireframe';
+  const picked = selSize(s.selection) === 1 ? s.selection.nodes[0] : undefined;
+  const wirePanel = !!picked && screenOf(s.report, picked)?.kind === 'wireframe';
+  const shownPanelWidth = wirePanel ? Math.max(panelWidth, Math.min(WIREFRAME_PANEL_W, window.innerWidth - 360)) : panelWidth;
   // One question box: at the bottom of the conversation while it's open, in the dock while it isn't.
   const askInPanel = panel && !!s.map;
   const composer = s.map ? (
@@ -232,11 +239,11 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         <StopButton busy={!!s.job} onStopped={onStopped} onError={(message) => dispatch({ type: 'error', message })} />
         <span className={s.connected ? 'live on' : 'live'} title={s.connected ? 'Connected to illuminate' : 'Reconnecting to illuminate…'} />
       </header>
-      <div className={panel ? 'body' : 'body full'} style={{ '--panel-w': `${panelWidth}px` } as CSSProperties}>
+      <div className={panel ? 'body' : 'body full'} style={{ '--panel-w': `${shownPanelWidth}px` } as CSSProperties}>
         <div className="canvas">
           {s.map && drawn ? (
             <>
-              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} />
+              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} tourWide={tourWide} onSelect={onSelect} onClear={onClear} />
               {!touring && !panel && <ConversationButton state={s} dispatch={dispatch} />}
               {touring && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={setDraft} />}
               <Dock map={s.map} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>
@@ -247,7 +254,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
             <div className="empty">{s.phase === 'making' ? <div className="pulse">Claude is exploring the code…</div> : null}</div>
           )}
         </div>
-        {panel && <PanelResizer width={panelWidth} onWidth={setPanelWidth} />}
+        {panel && <PanelResizer width={shownPanelWidth} onWidth={setPanelWidth} />}
         {panel && <Panel state={s} dispatch={dispatch} onFix={onFix} onFocus={(id) => dispatch({ type: 'focus', id })} onOffer={onOffer} composer={askInPanel ? composer : null} />}
       </div>
     </div>

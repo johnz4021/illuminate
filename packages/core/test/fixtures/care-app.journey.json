@@ -2,35 +2,186 @@
   "version": 1,
   "question": "What does staff go through to convert a patient?",
   "view": "journey",
+  "pages": [
+    {
+      "id": "patient",
+      "name": "Patient page",
+      "file": "src/ui/PatientPage.tsx",
+      "regions": [
+        {
+          "id": "header",
+          "slot": "top",
+          "label": "Header",
+          "file": "src/ui/PatientHeader.tsx",
+          "elements": [
+            {
+              "kind": "button",
+              "text": "Mark as converted"
+            }
+          ]
+        },
+        {
+          "id": "links",
+          "slot": "left",
+          "label": "Links",
+          "file": "src/ui/PatientSidebar.tsx",
+          "elements": [
+            {
+              "kind": "link",
+              "text": "All patients"
+            },
+            {
+              "kind": "link",
+              "text": "Leads"
+            },
+            {
+              "kind": "link",
+              "text": "Settings"
+            }
+          ]
+        },
+        {
+          "id": "notes",
+          "slot": "main",
+          "label": "Notes",
+          "file": "src/ui/PatientNotes.tsx",
+          "elements": [
+            {
+              "kind": "heading",
+              "text": "Notes"
+            },
+            {
+              "kind": "field",
+              "text": "Add a note"
+            },
+            {
+              "kind": "button",
+              "text": "Save note"
+            }
+          ]
+        }
+      ]
+    }
+  ],
   "areas": [
-    { "id": "page", "label": "On the patient page" },
-    { "id": "after", "label": "Afterwards" }
+    {
+      "id": "page",
+      "label": "On the patient page"
+    },
+    {
+      "id": "after",
+      "label": "Afterwards"
+    }
   ],
   "nodes": [
     {
-      "id": "j1", "area": "page", "kind": "screen", "name": "Patient page",
+      "id": "j1",
+      "area": "page",
+      "kind": "screen",
+      "name": "Patient page",
       "symbol": "src/ui/PatientHeader.tsx#PatientHeader",
-      "explain": { "concept": "The top of a patient's page, where staff see the button to convert a lead." },
-      "evidence": [{ "file": "src/ui/PatientHeader.tsx", "line": 2, "text": "export function PatientHeader" }],
-      "screen": { "kind": "sketch", "file": "src/ui/PatientHeader.tsx", "elements": [{ "kind": "button", "text": "Mark as converted" }], "highlight": "Mark as converted" }
+      "explain": {
+        "concept": "The top of a patient's page, where staff see the button to convert a lead."
+      },
+      "evidence": [
+        {
+          "file": "src/ui/PatientHeader.tsx",
+          "line": 2,
+          "text": "export function PatientHeader"
+        }
+      ],
+      "screen": {
+        "kind": "wireframe",
+        "page": "patient",
+        "region": "header",
+        "highlight": "Mark as converted"
+      }
     },
     {
-      "id": "j2", "area": "page", "kind": "action", "name": "Marks the lead as converted",
-      "explain": { "concept": "Staff press the button. Nothing on the page changes to say it worked." },
-      "evidence": [{ "file": "src/ui/PatientHeader.tsx", "line": 4, "text": "Mark as converted" }]
+      "id": "j2",
+      "area": "page",
+      "kind": "action",
+      "name": "Marks the lead as converted",
+      "explain": {
+        "concept": "Staff press the button. Nothing on the page changes to say it worked."
+      },
+      "evidence": [
+        {
+          "file": "src/ui/PatientHeader.tsx",
+          "line": 4,
+          "text": "Mark as converted"
+        }
+      ]
     },
     {
-      "id": "j3", "area": "after", "kind": "external", "name": "Patient gets the welcome email",
-      "explain": { "concept": "The patient receives a welcome email, if a rule says to send one." },
-      "evidence": [{ "file": "src/automations/evaluate.ts", "line": 6, "text": "welcome_email" }]
+      "id": "j3",
+      "area": "after",
+      "kind": "external",
+      "name": "Patient gets the welcome email",
+      "explain": {
+        "concept": "The patient receives a welcome email, if a rule says to send one."
+      },
+      "evidence": [
+        {
+          "file": "src/automations/evaluate.ts",
+          "line": 6,
+          "text": "welcome_email"
+        }
+      ]
     }
   ],
   "edges": [
-    { "id": "ja", "from": "j1", "to": "j2", "label": "taps the button", "evidence": [{ "file": "src/ui/PatientHeader.tsx", "line": 4, "text": "onClick={onConvert}" }] },
-    { "id": "jb", "from": "j2", "to": "j3", "label": "that night at the earliest", "evidence": [{ "file": "src/jobs/nightly.ts", "line": 5, "text": "schedule = '0 2 * * *'" }] }
+    {
+      "id": "ja",
+      "from": "j1",
+      "to": "j2",
+      "label": "taps the button",
+      "evidence": [
+        {
+          "file": "src/ui/PatientHeader.tsx",
+          "line": 4,
+          "text": "onClick={onConvert}"
+        }
+      ]
+    },
+    {
+      "id": "jb",
+      "from": "j2",
+      "to": "j3",
+      "label": "that night at the earliest",
+      "evidence": [
+        {
+          "file": "src/jobs/nightly.ts",
+          "line": 5,
+          "text": "schedule = '0 2 * * *'"
+        }
+      ]
+    }
   ],
   "tour": [
-    { "id": "t1", "title": "Converting a patient", "text": "Staff open a patient's page and press one button. That is the whole of what they do.", "focus": { "nodes": ["j1", "j2"] } },
-    { "id": "t2", "title": "What the patient sees", "text": "The welcome email doesn't go out right away: it waits for a job that runs at 2:00 am.", "focus": { "nodes": ["j3"], "edges": ["jb"] } }
+    {
+      "id": "t1",
+      "title": "Converting a patient",
+      "text": "Staff open a patient's page and press one button. That is the whole of what they do.",
+      "focus": {
+        "nodes": [
+          "j1",
+          "j2"
+        ]
+      }
+    },
+    {
+      "id": "t2",
+      "title": "What the patient sees",
+      "text": "The welcome email doesn't go out right away: it waits for a job that runs at 2:00 am.",
+      "focus": {
+        "nodes": [
+          "j3"
+        ],
+        "edges": [
+          "jb"
+        ]
+      }
+    }
   ]
 }

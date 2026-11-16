@@ -20,7 +20,7 @@ import {
 import { commitInfo, createBaseReader, lineDiff, type BaseReader } from './base';
 import { isAddition, type CodeMap, type Evidence, type MapAbsence, type MapEdge, type MapNode, type Proposal } from './format';
 import { createRepoReader, isSecretPath, type RepoReader } from './repo';
-import { checkScreen, type ScreenCheck } from './screens';
+import { checkPage, checkScreen, type PageCheck, type ScreenCheck } from './screens';
 
 /**
  * Whether the code backs a claim. `proposed` is only for a box or arrow that carries a proposal: it isn't in the code,
@@ -92,8 +92,17 @@ export function check(map: CodeMap, root: string, options: CheckOptions = {}): C
   for (const a of map.absences) absences[a.id] = checkAbsence(a, repo, files());
 
   const screens: Record<string, ScreenCheck> = {};
+  // A page is checked once, however many boxes show it.
+  const pageChecks = new Map<string, PageCheck | null>();
+  const pageOf = (id: string): PageCheck | null => {
+    if (!pageChecks.has(id)) {
+      const page = map.pages?.find((p) => p.id === id);
+      pageChecks.set(id, page ? checkPage(page, repo, (file) => now.facts.get(file)?.imports.map((i) => i.to).filter((to) => !to.startsWith('vendor:')) ?? []) : null);
+    }
+    return pageChecks.get(id) ?? null;
+  };
   for (const n of map.nodes) {
-    const sc = checkScreen(n, repo);
+    const sc = checkScreen(n, repo, pageOf);
     if (sc) screens[n.id] = sc;
   }
 

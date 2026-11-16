@@ -4,12 +4,14 @@
 // - an image must be a file in the repo that the cited code names;
 // - a sketch's elements must each appear in the markup file it was drawn from, unless the box carries a proposal and
 //   the element is part of it (then it is shown as proposed until the file has it).
+// - a wireframe draws one of the map's pages: each region's file must be the page's file or one it brings in, and each
+//   element's text must be in its region's file. The layout (which slot a region is in) is not checked.
 // No model calls, and nothing is written here: captures are taken and saved by the server (`screens.ts` there).
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { isAddition, isSafeRelativePath, type MapNode, type Screen } from './format';
+import { isAddition, isSafeRelativePath, type MapNode, type Page, type Screen, type Slot } from './format';
 import { isSecretPath, type RepoReader } from './repo';
 
 export const SCREENS_DIR = '.illuminate/screens';
@@ -41,7 +43,12 @@ export type ScreenBox = { x: number; y: number; w: number; h: number };
 export type ScreenShow =
   | { kind: 'capture'; capture: string; title: string; width: number; height: number; from: string; box: ScreenBox | null }
   | { kind: 'image'; file: string }
-  | { kind: 'sketch'; file: string; elements: NonNullable<Screen['elements']>; highlight: string | null };
+  | { kind: 'sketch'; file: string; elements: NonNullable<Screen['elements']>; highlight: string | null }
+  | { kind: 'wireframe'; page: PageShow; region: string | null; highlight: string | null };
+/** A page as it can be drawn: the regions that checked out, each with the elements found in its file. */
+export type PageShow = { id: string; name: string; file: string; regions: { id: string; slot: Slot; label: string; file: string; elements: { kind: string; text: string }[] }[] };
+/** What the checker made of a page. `dropped` says, by region id, why a region isn't drawn. */
+export type PageCheck = { show: PageShow | null; reason: string | null; dropped: Record<string, string> };
 export type ScreenCheck = { status: 'confirmed' | 'unconfirmed'; reasons: string[]; show: ScreenShow | null };
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -102,12 +109,58 @@ export function findOnCapture(capture: Capture, label: string): CapturedElement 
   return holding[0] ?? null;
 }
 
-export function checkScreen(n: MapNode, repo: RepoReader): ScreenCheck | null {
+/** How many files a page may bring in, directly or through others, before the search for a region's file gives up. */
+const MAX_PAGE_FILES = 600;
+
+/**
+ * A page of the map, checked region by region: the region's file must be the page's own file or one it brings in
+ * (through imports, however many steps), and every element's text must be in that file. A region that fails is left
+ * off the drawing; the rest of the page stays. Where regions sit can't be checked, and the drawing says so.
+ */
+export function checkPage(page: Page, repo: RepoReader, importsOf: (file: string) => readonly string[]): PageCheck {
+  const own = repo.read(page.file);
+  if (!own.ok) return { show: null, reason: `${page.file}: ${own.reason}`, dropped: {} };
+  const reached = new Set([page.file]);
+  for (const queue = [page.file]; queue.length && reached.size < MAX_PAGE_FILES; ) {
+    for (const to of importsOf(queue.shift()!)) {
+      if (reached.has(to)) continue;
+      reached.add(to);
+      queue.push(to);
+    }
+  }
+  const dropped: Record<string, string> = {};
+  const regions: PageShow['regions'] = [];
+  for (const r of page.regions) {
+    const read = repo.read(r.file);
+    const missing = read.ok ? r.elements.filter((e) => !norm(read.text).includes(norm(e.text))) : [];
+    if (!read.ok) dropped[r.id] = `${r.file}: ${read.reason}`;
+    else if (!reached.has(r.file)) dropped[r.id] = `${r.file} isn't part of this page: ${page.file} doesn't bring it in`;
+    else if (missing.length) dropped[r.id] = missing.map((e) => `"${e.text}" isn't in ${r.file}`).join('; ');
+    else regions.push({ id: r.id, slot: r.slot, label: r.label, file: r.file, elements: r.elements.map((e) => ({ kind: e.kind, text: e.text })) });
+  }
+  if (!regions.length) return { show: null, reason: `no region of page "${page.id}" checked out: ${Object.values(dropped).join('; ')}`, dropped };
+  return { show: { id: page.id, name: page.name, file: page.file, regions }, reason: null, dropped };
+}
+
+export function checkScreen(n: MapNode, repo: RepoReader, pageOf: (id: string) => PageCheck | null = () => null): ScreenCheck | null {
   const sc = n.screen;
   if (!sc) return null;
   const fail = (...reasons: string[]): ScreenCheck => ({ status: 'unconfirmed', reasons, show: null });
   const cited = [...new Set(n.evidence.map((e) => e.file))];
   const inCitedCode = (text: string) => cited.some((f) => norm(repo.text(f) ?? '').includes(norm(text)));
+
+  if (sc.kind === 'wireframe') {
+    const page = pageOf(sc.page ?? '');
+    if (!page) return fail(`the map has no page "${sc.page ?? ''}"`);
+    if (!page.show) return fail(page.reason ?? 'the page could not be checked');
+    const region = sc.region ? page.show.regions.find((r) => r.id === sc.region) : null;
+    if (sc.region && !region) return fail(page.dropped[sc.region] ?? `page "${page.show.id}" has no region "${sc.region}"`);
+    if (sc.highlight && !region?.elements.some((e) => norm(e.text) === norm(sc.highlight!))) return fail(`the highlight "${sc.highlight}" isn't one of the elements of region "${sc.region ?? ''}"`);
+    // The box has to be about this page: it cites the page's code, or the thing it marks is in the code it cites.
+    const about = cited.includes(page.show.file) || (!!region && cited.includes(region.file)) || (!!sc.highlight && inCitedCode(sc.highlight));
+    if (!about) return fail(`the code this box cites (${cited.join(', ')}) isn't part of what it marks on page "${page.show.id}"`);
+    return { status: 'confirmed', reasons: [], show: { kind: 'wireframe', page: page.show, region: region?.id ?? null, highlight: sc.highlight ?? null } };
+  }
 
   if (sc.kind === 'capture') {
     const got = readCapture(repo.root, sc.capture ?? '');

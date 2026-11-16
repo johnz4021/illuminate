@@ -154,7 +154,7 @@ describe('a proposed screen', () => {
 
 describe('a missing connection', () => {
   it('says how many files its search covered, and proves nothing when it covered none', () => {
-    expect(check(load(MAP_JSON), APP).absences.miss).toMatchObject({ status: 'confirmed', found: 0, searched: 9 });
+    expect(check(load(MAP_JSON), APP).absences.miss).toMatchObject({ status: 'confirmed', found: 0, searched: 12 });
     const narrow = structuredClone(MAP_JSON);
     narrow.absences[0].search.paths = ['src/nowhere/**'];
     expect(check(load(narrow), APP).absences.miss).toMatchObject({ status: 'unconfirmed', searched: 0, reasons: ['no files match src/nowhere/**, so nothing was searched'] });

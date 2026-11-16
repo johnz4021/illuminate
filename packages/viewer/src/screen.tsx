@@ -1,5 +1,6 @@
 // What the person sees at a box: a screenshot illuminate took (with the thing the box is about marked), an image file
-// from the repo, or a rough sketch of a component's visible parts. Only screens the checker confirmed get here.
+// from the repo, a wireframe of the whole page with the box's part of it marked, or a rough sketch of one component's
+// visible parts. Only screens the checker confirmed get here.
 import { useState } from 'react';
 import { screenUrl } from './api';
 import type { CheckReport, CodeMap, ScreenShow } from './types';
@@ -23,6 +24,48 @@ export function firstScreen(map: CodeMap, report: CheckReport | null, ids: reado
   return null;
 }
 
+type WireframeShow = Extract<ScreenShow, { kind: 'wireframe' }>;
+type WireRegion = WireframeShow['page']['regions'][number];
+/** A page's wireframe needs more room than a sketch: the walkthrough bubble and the panel widen to these while one shows. */
+export const WIREFRAME_BUBBLE_W = 600;
+export const WIREFRAME_PANEL_W = 560;
+
+/**
+ * A page as a wireframe: its regions in five fixed places (top, left, main, right, bottom), with the region and the
+ * element a box is about marked. `small` is the size that sits on a journey box: region names only, plus the marked
+ * element, since the point there is where on the page the step happens.
+ */
+function Wireframe({ show, small = false }: { show: WireframeShow; small?: boolean }) {
+  const at = (slot: WireRegion['slot']) => show.page.regions.filter((r) => r.slot === slot);
+  const hl = show.highlight?.trim().toLowerCase();
+  const region = (r: WireRegion) => {
+    const on = r.id === show.region;
+    const marked = (e: { text: string }) => on && e.text.trim().toLowerCase() === hl;
+    const elements = small ? r.elements.filter(marked) : r.elements;
+    return (
+      <div key={r.id} className={cls('wf-region', on && 'wf-on')}>
+        <span className="wf-label">{r.label}</span>
+        <span className="wf-els">
+          {elements.map((e, i) => (
+            <span key={i} className={cls('sk', `sk-${e.kind}`, marked(e) && 'sk-mark')} title={e.text}>{e.kind === 'image' ? `▧ ${e.text}` : e.text}</span>
+          ))}
+        </span>
+      </div>
+    );
+  };
+  const slot = (name: WireRegion['slot']) => (at(name).length ? <div className={`wf-slot wf-${name}`}>{at(name).map(region)}</div> : null);
+  const sides = at('left').length + at('right').length;
+  // The middle row: the main area takes most of the width, unless the page has only side regions.
+  const columns = [at('left').length && 'minmax(0, 1fr)', (at('main').length || !sides) && 'minmax(0, 2.6fr)', at('right').length && 'minmax(0, 1fr)'].filter(Boolean).join(' ');
+  return (
+    <div className={cls('wf', small && 'wf-small')}>
+      {slot('top')}
+      {(sides > 0 || at('main').length > 0) && <div className="wf-mid" style={{ gridTemplateColumns: columns }}>{slot('left')}{slot('main')}{slot('right')}</div>}
+      {slot('bottom')}
+    </div>
+  );
+}
+
 export function ScreenView({ show, name }: { show: ScreenShow; name: string }) {
   // A whole screen in a narrow card makes the marked thing tiny, so it starts zoomed in on the mark.
   const [whole, setWhole] = useState(false);
@@ -42,6 +85,14 @@ export function ScreenView({ show, name }: { show: ScreenShow; name: string }) {
           Screenshot of {show.from}
           {box && <> · <button className="linklike" onClick={() => setWhole(!whole)}>{whole ? 'Zoom in' : 'Show the whole screen'}</button></>}
         </figcaption>
+      </figure>
+    );
+  }
+  if (show.kind === 'wireframe') {
+    return (
+      <figure className="screen">
+        <div role="img" aria-label={`Wireframe of ${show.page.name}, the page at “${name}”`}><Wireframe show={show} /></div>
+        <figcaption className="muted small">Wireframe of {show.page.name}, from {show.page.file}. Where things sit is approximate; it isn’t a screenshot.</figcaption>
       </figure>
     );
   }
@@ -72,7 +123,7 @@ export function ScreenView({ show, name }: { show: ScreenShow; name: string }) {
   );
 }
 
-/** The same picture small enough to sit on a journey box: the top of a sketch, or a screenshot zoomed on its mark. */
+/** The same picture small enough to sit on a journey box: the page's wireframe, the top of a sketch, or a screenshot zoomed on its mark. */
 export function ScreenThumb({ show, name }: { show: ScreenShow; name: string }) {
   if (show.kind === 'sketch') {
     const hl = show.highlight?.trim().toLowerCase();
@@ -87,6 +138,9 @@ export function ScreenThumb({ show, name }: { show: ScreenShow; name: string }) 
         {show.elements.length > shown.length && <span className="thumb-more">+{show.elements.length - shown.length} more</span>}
       </div>
     );
+  }
+  if (show.kind === 'wireframe') {
+    return <div className="thumb thumb-wire" role="img" aria-label={`Wireframe of ${show.page.name}, the page at “${name}”`}><Wireframe show={show} small /></div>;
   }
   if (show.kind === 'image') {
     return <div className="thumb thumb-image"><img src={screenUrl(show)} alt={`Image used at “${name}”`} loading="lazy" /></div>;

@@ -188,6 +188,13 @@ anything Claude proposes is drawn as a proposal on top of it. It has to win on e
   now. Since then: the prompt asks for the unchanged steps too (about a third of the boxes), the map has a key, and a
   Before / After / Both switch fades the other side to a shadow (John's call, over hiding it: one graph that keeps its shape). Real Claude hasn't written a change map yet;
   only the scripted preview and tests have.
+- **Wireframes built 2026-11-16** (see `CLAUDE.md`, "Screens"). John found the sketches on journey boxes thin: a few
+  words from one file, no layout, forced onto every screen box. He wanted the whole page as a reference, without
+  having to run the app (he doubts people will have it running, and Claude starting it is overkill). Decided: a page is
+  defined once on the map with regions in five fixed slots, and each box marks its part. Slots over free rows and
+  columns because Claude can't get them badly wrong; move to rows and columns only if real pages don't fit. Journey
+  boxes are no longer forced to carry a picture. Real Claude hasn't written a wireframe yet, so how well it reads a
+  page's layout from code is untested.
 - **How to tell it's helpful:** Lucia, Felix and Dhruv on their own repos for a week. Did they open it a second time
   unprompted, and ask a follow-up on the map instead of in the terminal?
 

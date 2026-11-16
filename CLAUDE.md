@@ -158,10 +158,18 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   the boxes (select one to see it). `npm run preview` returns the journey fixture (`care-app.journey.json`) for a
   question with "journey" or "go through" in it, or set `PREVIEW_QUESTION`.
 - **Screens** (`core/src/screens.ts`, `server/src/screens.ts`, `viewer/src/screen.tsx`): a box may carry an optional
-  `screen`, and the model decides when one helps (`SCREEN_RULES` in `prompts.ts`). Three kinds: `capture` (a screenshot
+  `screen`, and the model decides when one helps (`SCREEN_RULES` in `prompts.ts`). The usual one is a `wireframe`:
+  the map defines each page once in `pages` (regions in five fixed slots: top, left, main, right, bottom; each region
+  names its file and a few elements), and a box shows its page with its own region and element marked. `checkPage`
+  confirms each region's file is the page's file or one it imports (however many steps) and that every element's
+  text is in that file; a region that fails is left off. Which slot a region is in can't be checked, so the drawing
+  says the layout is approximate. Nothing has to be running for a wireframe. It is drawn at its natural size: the
+  walkthrough bubble and the panel widen while one shows (`WIREFRAME_BUBBLE_W`, `WIREFRAME_PANEL_W` in `screen.tsx`),
+  and its styles are in `viewer/src/wireframe.css`. The other kinds: `capture` (a screenshot
   illuminate took itself with the installed Chrome, headless, clean profile, only of localhost pages or HTML files in
   the repo; saved with a record under `.illuminate/screens/`), `image` (a repo image the cited code names) and `sketch`
-  (a wireframe whose every element's text is in its markup file). `check()` reports them under `report.screens`, not as
+  (one component's visible things as a list, every element's text in its markup file; now only asked for on proposals,
+  where it can show elements that aren't there yet). `check()` reports them under `report.screens`, not as
   claims: a screen that fails is not shown, and the box stays. The channel offers `illuminate_screens` (what the repo
   can show) and `illuminate_capture` (returns the image for Claude to look at). illuminate never starts the app. The
   CLI's Agent SDK session has no capture tool yet, so there it can only use `image` and `sketch`.

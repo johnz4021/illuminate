@@ -22,7 +22,7 @@ import {
 } from '@xyflow/react';
 import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout } from './layout';
 import type { Sel, View } from './state';
-import { ScreenThumb } from './screen';
+import { ScreenThumb, WIREFRAME_BUBBLE_W } from './screen';
 import type { CheckReport, CodeMap, FixProposal, ScreenShow } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
@@ -313,6 +313,8 @@ export type GraphProps = {
   ghost: FixProposal | null;
   /** The walkthrough is running: keep what it lights up clear of its bubble, bottom left. */
   touring: boolean;
+  /** The stop shows a page's wireframe, so the bubble is wider and needs more room. */
+  tourWide?: boolean;
   onSelect: (kind: keyof Sel, id: string, additive: boolean) => void;
   onClear: () => void;
 };
@@ -332,6 +334,7 @@ function nodesOf(map: CodeMap, ids: readonly string[]): string[] {
 
 /** Room the camera leaves on the left for the walkthrough bubble (its width plus a margin). */
 const TOUR_ROOM = '440px';
+const TOUR_ROOM_WIDE = `${WIREFRAME_BUBBLE_W + 40}px`;
 
 const shortClaim = (claim: string) => (claim.length > 28 ? `${claim.slice(0, 26)}…` : claim);
 
@@ -560,7 +563,7 @@ export function MapGraph(p: GraphProps) {
 
   // The camera follows the view: fly to what's in focus, or show the whole map. It waits (a frame at a time) until
   // React Flow has measured every box, or it would fit an empty canvas.
-  const viewKey = JSON.stringify([layout?.key, p.view?.focus, p.view?.highlight, p.touring]);
+  const viewKey = JSON.stringify([layout?.key, p.view?.focus, p.view?.highlight, p.touring, p.tourWide]);
   const firstFit = useRef(true);
   useEffect(() => {
     if (!layout) return;
@@ -579,7 +582,7 @@ export function MapGraph(p: GraphProps) {
       firstFit.current = false;
       // Keep clear of the dock along the bottom.
       const padding = ids.length
-        ? ({ top: '60px', left: p.touring ? TOUR_ROOM : '60px', right: '60px', bottom: '150px' } as const)
+        ? ({ top: '60px', left: p.touring ? (p.tourWide ? TOUR_ROOM_WIDE : TOUR_ROOM) : '60px', right: '60px', bottom: '150px' } as const)
         : ({ top: '64px', left: '32px', right: '32px', bottom: '130px' } as const); // top: the earlier-questions button
       void rf.fitView(ids.length ? { nodes: ids.map((n) => ({ id: n })), duration, padding, maxZoom: 1.15 } : { duration, padding, maxZoom: 1.1 });
     };

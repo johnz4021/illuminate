@@ -108,3 +108,88 @@ describe('an image file', () => {
     expect(check(withScreen({ kind: 'image', file: 'src/ui/PatientHeader.tsx' }), root).screens[BOX]!.reasons[0]).toContain('not an image file');
   });
 });
+
+describe('a wireframe of a page', () => {
+  const PAGE = {
+    id: 'patient',
+    name: 'Patient page',
+    file: 'src/ui/PatientPage.tsx',
+    regions: [
+      { id: 'header', slot: 'top', label: 'Header', file: 'src/ui/PatientHeader.tsx', elements: [{ kind: 'button', text: 'Mark as converted' }] },
+      { id: 'links', slot: 'left', label: 'Links', file: 'src/ui/PatientSidebar.tsx', elements: [{ kind: 'link', text: 'All patients' }, { kind: 'link', text: 'Leads' }] },
+      { id: 'notes', slot: 'main', label: 'Notes', file: 'src/ui/PatientNotes.tsx', elements: [{ kind: 'heading', text: 'Notes' }, { kind: 'button', text: 'Save note' }] },
+    ],
+  };
+  const MARK = { kind: 'wireframe', page: 'patient', region: 'header', highlight: 'Mark as converted' };
+  /** The fixture map with a page, and a wireframe of it on the given boxes (the first box cites PatientHeader.tsx). */
+  const withPage = (edit: (page: any) => void = () => {}, screens: Record<string, unknown> = { [BOX]: MARK }) => {
+    const m = structuredClone(MAP_JSON);
+    const page = structuredClone(PAGE);
+    edit(page);
+    m.pages = [page];
+    for (const n of m.nodes) if (screens[n.id]) n.screen = screens[n.id];
+    return parseMap(m);
+  };
+  const checked = (...args: Parameters<typeof withPage>) => {
+    const parsed = withPage(...args);
+    if (!parsed.ok) throw new Error(parsed.problems.join('\n'));
+    return check(parsed.map, APP);
+  };
+
+  it('draws the whole page, with the box\'s region and element marked', () => {
+    const c = checked().screens[BOX]!;
+    expect(c).toMatchObject({ status: 'confirmed', show: { kind: 'wireframe', region: 'header', highlight: 'Mark as converted', page: { id: 'patient', name: 'Patient page' } } });
+    const show = c.show as Extract<typeof c.show, { kind: 'wireframe' }>;
+    expect(show.page.regions.map((r) => [r.id, r.slot])).toEqual([['header', 'top'], ['links', 'left'], ['notes', 'main']]);
+  });
+
+  it('leaves off a region whose text isn\'t in its file, or whose file the page doesn\'t bring in', () => {
+    const made = checked((p) => { p.regions[1].elements.push({ kind: 'link', text: 'Billing' }); });
+    expect((made.screens[BOX]!.show as any).page.regions.map((r: any) => r.id)).toEqual(['header', 'notes']);
+    const elsewhere = checked((p) => { p.regions[2].file = 'src/email/send.ts'; p.regions[2].elements = []; });
+    expect((elsewhere.screens[BOX]!.show as any).page.regions.map((r: any) => r.id)).toEqual(['header', 'links']);
+  });
+
+  it('is not shown when the box\'s own region fails, and says why', () => {
+    const c = checked((p) => { p.regions[0].file = 'src/email/send.ts'; p.regions[0].elements = []; }, { [BOX]: { kind: 'wireframe', page: 'patient', region: 'header' } }).screens[BOX]!;
+    expect(c).toMatchObject({ status: 'unconfirmed', show: null, reasons: ["src/email/send.ts isn't part of this page: src/ui/PatientPage.tsx doesn't bring it in"] });
+  });
+
+  it('follows imports through other files to find a region\'s file', () => {
+    const root = copyApp();
+    writeFileSync(join(root, 'src/ui/App.tsx'), "import { PatientPage } from './PatientPage';\nexport function App() {\n  return <PatientPage patientId=\"1\" />;\n}\n");
+    const parsed = withPage((p) => { p.file = 'src/ui/App.tsx'; });
+    if (!parsed.ok) throw new Error(parsed.problems.join('\n'));
+    expect((check(parsed.map, root).screens[BOX]!.show as any).page.regions).toHaveLength(3);
+  });
+
+  it('needs the box to be about the page it shows', () => {
+    // The last box cites the nightly job, which has nothing to do with the patient page.
+    const other = MAP_JSON.nodes.find((n: any) => n.id === 'j1').id;
+    const c = checked(undefined, { [other]: { kind: 'wireframe', page: 'patient', region: 'notes', highlight: 'Save note' } }).screens[other]!;
+    expect(c.status).toBe('unconfirmed');
+    expect(c.reasons[0]).toContain("isn't part of what it marks");
+  });
+
+  it('marks only an element that is in the region', () => {
+    const c = checked(undefined, { [BOX]: { ...MARK, highlight: 'Save note' } }).screens[BOX]!;
+    expect(c).toMatchObject({ status: 'unconfirmed', reasons: ['the highlight "Save note" isn\'t one of the elements of region "header"'] });
+  });
+
+  it('is checked once and shared by every box on the page', () => {
+    const second = MAP_JSON.nodes[1].id as string; // cites src/server/routes.ts, so it has to mark something its code names
+    const r = checked(undefined, { [BOX]: MARK, [second]: { kind: 'wireframe', page: 'patient' } });
+    expect(r.screens[BOX]!.status).toBe('confirmed');
+    expect(r.screens[second]!.status).toBe('unconfirmed');
+  });
+
+  it('is refused by the format when the page or region doesn\'t exist, or a file leaves the repo', () => {
+    const problems = (...args: Parameters<typeof withPage>) => { const r = withPage(...args); return r.ok ? [] : r.problems; };
+    expect(problems(undefined, { [BOX]: { kind: 'wireframe', page: 'nope' } })).toEqual([expect.stringContaining('there is no page "nope"')]);
+    expect(problems(undefined, { [BOX]: { kind: 'wireframe', page: 'patient', region: 'footer' } })).toEqual([expect.stringContaining('has no region "footer"')]);
+    expect(problems(undefined, { [BOX]: { kind: 'wireframe', page: 'patient', highlight: 'Notes' } })).toEqual([expect.stringContaining('needs the `region`')]);
+    expect(problems((p) => { p.regions[0].file = '../outside.tsx'; })).toEqual([expect.stringContaining('must be a path inside the repo')]);
+    expect(problems((p) => { p.regions[1].id = 'header'; })).toEqual([expect.stringContaining('region id "header" is used twice')]);
+    expect(problems((p) => { p.regions[0].slot = 'footer'; })).toHaveLength(1);
+  });
+});
