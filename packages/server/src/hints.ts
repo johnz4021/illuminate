@@ -2,6 +2,7 @@
 // routes, which tables are written), so Claude spends its reading on the question instead of on finding the edges.
 import * as fs from 'node:fs';
 import { findFetchSites, initTreeSitter, matchRoute, scanRepoFacts, type RepoScan } from '@illuminate/facts';
+import { recentChanges } from './changes';
 
 const MAX_LINES = 40;
 /** The function index can be longer: it's what keeps citations exact, and input is cheap next to output. */
@@ -81,6 +82,14 @@ export async function headStart(root: string): Promise<{ text: string; scan: Rep
   }
   const folderLines = [...folders].sort((a, b) => b[1] - a[1]).map(([d, n]) => `  - ${d}/ (${n} files)`);
 
+  // What changed lately, for a question about a change. Never worth failing a map over.
+  let recent: ReturnType<typeof recentChanges> = null;
+  try {
+    recent = recentChanges(root);
+  } catch {
+    recent = null;
+  }
+
   const text = [
     ...section('Ways in (entry points)', entries),
     ...section('Routes and their handlers', routeLines),
@@ -88,6 +97,7 @@ export async function headStart(root: string): Promise<{ text: string; scan: Rep
     ...section('Tables and what writes them', tables),
     ...section('Top-level folders', folderLines),
     ...functionSection(symbolIndex(scan)),
+    ...(recent ? section(recent.title, recent.lines) : []),
   ].join('\n');
   return { text: text || '(The automatic scan found no entry points; explore the repo directly.)', scan };
 }

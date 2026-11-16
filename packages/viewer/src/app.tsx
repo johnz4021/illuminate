@@ -74,11 +74,12 @@ function MapStatus({ report }: { report: CheckReport | null }) {
       {done === 0 ? `${proposed} proposed ${proposed === 1 ? 'change' : 'changes'}` : `${done} of ${proposed} proposed changes done`}
     </span>
   );
+  const proposalsAndChanges = <>{proposals}<ChangeStatus report={report} /></>;
   if (!off) {
     return (
       <>
         <span className="map-status ok" title="Every box and arrow on this map was just re-checked and is really in the code, and every gap's search still finds nothing. That shows each part is real; it doesn't show the map covers everything.">✓ Every part is in the code</span>
-        {proposals}
+        {proposalsAndChanges}
       </>
     );
   }
@@ -90,8 +91,28 @@ function MapStatus({ report }: { report: CheckReport | null }) {
       >
         {off === 1 ? '1 part of this map doesn’t match the code' : `${off} parts of this map don’t match the code`}
       </span>
-      {proposals}
+      {proposalsAndChanges}
     </>
+  );
+}
+
+/** On a map of a change: which commit the code is compared with, and how much on the map differs from it. */
+function ChangeStatus({ report }: { report: CheckReport }) {
+  const since = report.since;
+  if (!since) return null;
+  if (!since.commit) {
+    return <span className="map-status off" title={`This map compares the code with "${since.ref}", but that isn't a commit in this repo, so nothing could be compared.`}>Can’t find the commit this map compares with</span>;
+  }
+  const { added, changed, removed } = report.summary.changes ?? { added: 0, changed: 0, removed: 0 };
+  const when = since.date ? new Date(since.date).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+  const counts = [added && `${added} added`, changed && `${changed} changed`, removed && `${removed} removed`].filter(Boolean).join(' · ');
+  return (
+    <span
+      className="map-status changes"
+      title={`This map shows the code as it is now, compared with commit ${since.commit.slice(0, 7)}${since.subject ? ` ("${since.subject}")` : ''}. illuminate works out from the two versions which boxes and arrows are new, different or gone. It can't tell who made a change.`}
+    >
+      Changes since {since.commit.slice(0, 7)}{when ? ` (${when})` : ''}{counts ? `: ${counts}` : ': nothing on this map differs'}
+    </span>
   );
 }
 
@@ -177,9 +198,10 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   const touring = !!s.map && s.tour !== null;
   // The panel shows only when it has something to say: an answer, what's selected, Claude's progress or an error
   // (before the map exists, it says how making it is going). Earlier questions are in the dock. During the walkthrough
-  // it would only hold an error or Claude's progress. Otherwise the map gets the room.
+  // it steps aside for the map, unless there is an error, Claude's progress, or a box the person picked to read about
+  // (the next stop clears that pick, and the panel steps aside again).
   const hasPanel = !s.map || !!s.error || !!s.job || s.shown !== null || selSize(s.selection) > 0;
-  const panel = hasPanel && (!touring || !!s.error || s.job?.kind === 'ask');
+  const panel = hasPanel && (!touring || !!s.error || s.job?.kind === 'ask' || selSize(s.selection) > 0);
   // One question box: at the bottom of the conversation while it's open, in the dock while it isn't.
   const askInPanel = panel && !!s.map;
   const composer = s.map ? (

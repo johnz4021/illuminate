@@ -17,6 +17,8 @@ and ask about it, and approve fixes that illuminate applies and re-checks.
 - The user is about to change code they don't understand yet and wants to see it first.
 - The user asks how a change would look before it's made ("how would we add…", "plan this"): the map shows the code as
   it is, with the proposal drawn on top. Once the change is built, reopening the map shows which parts are done.
+- The user asks what a change did ("what did you just change?", "what did the last commit do?"): the map shows the
+  code as it is now, with what is new, different or gone since a commit marked on it.
 - The user asks what someone sees or goes through in the app (a user journey): the map follows the screens, each tied
   to the code behind it.
 - The user asks for a map, diagram, graph or walkthrough of part of the code.

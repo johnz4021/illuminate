@@ -2,7 +2,7 @@
 // citations, with no tools: quick, and enough for many questions. If that isn't enough, Claude explores the repo. Anything
 // it adds must pass the checker or it isn't drawn; a requested change comes back as a validated fix proposal, never an edit.
 import * as crypto from 'node:crypto';
-import { addToMap, check, createRepoReader, mapIds, parseMap, removeFromMap, settledProposals, type CheckReport, type CodeMap, type Status } from '@illuminate/core';
+import { addToMap, check, createBaseReader, createRepoReader, mapIds, parseMap, removeFromMap, settledProposals, type CheckReport, type CodeMap, type Status } from '@illuminate/core';
 import type { Agent, Progress } from './agent';
 import { proposeFix, type FixProposal } from './fixes';
 import { explainerPrompt, quickAnswerPrompt, type EarlierTurn, type SelectionLine } from './prompts';
@@ -77,23 +77,26 @@ const MAX_EXCERPT_CHARS = 30_000;
 export function citedExcerpts(root: string, map: CodeMap, selection: Selection): string {
   const repo = createRepoReader(root);
   const picked = new Set([...(selection.nodes ?? []), ...(selection.edges ?? [])]);
-  const items = [...map.nodes.map((n) => ({ id: n.id, evidence: n.evidence })), ...map.edges.map((e) => ({ id: e.id, evidence: e.evidence }))];
+  // Removed code is cited as it was at the commit the map is compared with, so that is where its lines are read.
+  const base = map.since && [...map.nodes, ...map.edges].some((x) => x.removed) ? createBaseReader(root, map.since) : null;
+  const items = [...map.nodes, ...map.edges].map((x) => ({ id: x.id, evidence: x.evidence, was: !!x.removed }));
   items.sort((a, b) => Number(picked.has(b.id)) - Number(picked.has(a.id)));
   const seen = new Set<string>();
   const out: string[] = [];
   let size = 0;
   for (const item of items) {
     for (const e of item.evidence) {
-      const key = `${e.file}:${e.line}`;
+      const key = `${item.was ? 'was:' : ''}${e.file}:${e.line}`;
       if (seen.has(key) || out.length >= MAX_EXCERPTS) continue;
       seen.add(key);
-      const read = repo.read(e.file);
+      if (item.was && !base) continue;
+      const read = (item.was ? base! : repo).read(e.file);
       if (!read.ok) continue;
       const lines = read.text.split('\n');
       const from = Math.max(1, e.line - EXCERPT_RADIUS);
       const to = Math.min(lines.length, e.line + EXCERPT_RADIUS);
       const body = lines.slice(from - 1, to).map((l, i) => `${String(from + i).padStart(5)} | ${l}`).join('\n');
-      const block = `${e.file}:${from}-${to} (cited by ${item.id})\n${body}`;
+      const block = `${e.file}:${from}-${to} (${item.was ? 'removed since; as it was, ' : ''}cited by ${item.id})\n${body}`;
       if (size + block.length > MAX_EXCERPT_CHARS) return out.join('\n\n');
       out.push(block);
       size += block.length;

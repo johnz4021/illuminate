@@ -1,6 +1,8 @@
 // The map format: what Claude (or later the engine) writes, the checker verifies and the viewer draws.
 // This is the one-way door. Statuses are never part of it: the checker computes them from the repo every time.
 // That goes for proposals too: a map says what it would add, change or remove, and the checker says where that stands.
+// And for a map of a change (`since`): the checker works out what is new or different since that commit. The map only
+// says which boxes and arrows are code that has gone (`removed`), since those cite the code as it was.
 import { z } from 'zod';
 
 const Id = z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/, 'ids use letters, digits, _ . : - (at most 64)');
@@ -59,6 +61,12 @@ export const Proposal = z.object({
   note: z.string().min(1).max(300).optional(),
 });
 
+/**
+ * A commit, branch or tag to compare the code with (`HEAD`, `main`, `HEAD~2`, a hash). It is handed to git, so it can't
+ * start with `-` or hold anything but the characters a revision name uses.
+ */
+export const GitRef = z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9_./~^-]{0,99}$/, 'a commit, branch or tag name, e.g. "HEAD"');
+
 export const Area = z.object({ id: Id, label: z.string().min(1).max(40) });
 
 export const Node = z.object({
@@ -73,6 +81,8 @@ export const Node = z.object({
   evidence: z.array(Evidence).default([]),
   screen: Screen.optional(),
   proposed: Proposal.optional(),
+  /** Only on a map with `since`: this code was there at that commit and is gone now. Its `evidence` cites it as it was. */
+  removed: z.boolean().optional(),
 });
 
 export const Edge = z.object({
@@ -84,6 +94,8 @@ export const Edge = z.object({
   /** At least one line, except on a proposed addition (`parseMap` enforces it). */
   evidence: z.array(Evidence).default([]),
   proposed: Proposal.optional(),
+  /** Only on a map with `since`: this connection was there at that commit and is gone now. Its `evidence` cites it as it was. */
+  removed: z.boolean().optional(),
 });
 
 /** A claim that something is missing, proven by a search the checker runs again: `matches` is the count claimed. */
@@ -122,6 +134,12 @@ export const CodeMap = z.object({
   commit: z.string().nullable().optional(),
   /** `journey`: drawn as a user flow (left to right, shapes by kind, no code on the boxes). The claims are checked the same. */
   view: z.enum(['journey']).optional(),
+  /**
+   * Set on a map of a change: the commit the code is compared with. The checker marks each box and arrow that is new
+   * or different since then, and confirms the ones the map says were `removed`. Stored as a full hash once resolved,
+   * so the comparison stays the same after later commits.
+   */
+  since: GitRef.optional(),
   areas: z.array(Area).min(1),
   nodes: z.array(Node).min(1),
   edges: z.array(Edge).default([]),
@@ -153,6 +171,7 @@ export const isAddition = (x: { proposed?: Proposal }): boolean => x.proposed?.k
  * Validates shape, then references: unique ids, edges between real boxes, tour stops that point at real things.
  * Proposals have to hang off the code: everything cites a line except a proposed addition, an arrow to or from a
  * proposed box is itself proposed, and every proposed box connects, through arrows, to a box that exists.
+ * Removed code needs something to have been removed since (`since`), and an arrow can't outlive a box at its end.
  */
 export function parseMap(input: unknown): ParseResult {
   const parsed = CodeMap.safeParse(input);
@@ -180,6 +199,12 @@ export function parseMap(input: unknown): ParseResult {
     for (const e of item.evidence) if (!isSafeRelativePath(e.file)) problems.push(`${where}: evidence file "${e.file}" must be a path inside the repo`);
   };
   const added = new Set(map.nodes.filter(isAddition).map((n) => n.id));
+  const removed = new Set(map.nodes.filter((n) => n.removed).map((n) => n.id));
+  const gone = (where: string, item: { removed?: boolean; proposed?: Proposal }) => {
+    if (!item.removed) return;
+    if (!map.since) problems.push(`${where}: \`removed\` needs the map's \`since\` (the commit it was removed after)`);
+    if (item.proposed) problems.push(`${where}: it can't be both \`removed\` (already gone) and \`proposed\` (not done yet)`);
+  };
   for (const n of map.nodes) {
     if (!areas.has(n.area)) problems.push(`node "${n.id}": unknown area "${n.area}"`);
     if (n.symbol && !isSafeRelativePath(n.symbol.slice(0, n.symbol.indexOf('#')))) problems.push(`node "${n.id}": symbol file must be a path inside the repo`);
@@ -189,6 +214,7 @@ export function parseMap(input: unknown): ParseResult {
     if (sc && sc.kind !== 'capture' && (!sc.file || !isSafeRelativePath(sc.file))) problems.push(`node "${n.id}": a ${sc.kind} screen needs \`file\`, a path inside the repo`);
     if (sc?.kind === 'sketch' && !sc.elements) problems.push(`node "${n.id}": a sketch screen needs \`elements\``);
     if (!n.proposed && sc?.elements?.some((e) => e.proposed)) problems.push(`node "${n.id}": only a box that carries \`proposed\` can have proposed screen elements`);
+    gone(`node "${n.id}"`, n);
   }
   for (const e of map.edges) {
     if (!nodes.has(e.from)) problems.push(`edge "${e.id}": unknown node "${e.from}"`);
@@ -196,6 +222,9 @@ export function parseMap(input: unknown): ParseResult {
     evidence(`edge "${e.id}"`, e);
     const end = [e.from, e.to].find((id) => added.has(id));
     if (end && !isAddition(e)) problems.push(`edge "${e.id}": box "${end}" is a proposed addition, so an arrow to or from it must be one too (\`proposed\`: { "kind": "add" })`);
+    gone(`edge "${e.id}"`, e);
+    const wasAt = [e.from, e.to].find((id) => removed.has(id));
+    if (wasAt && !e.removed) problems.push(`edge "${e.id}": box "${wasAt}" was removed, so an arrow to or from it was removed too (\`removed\`: true)`);
   }
   // A proposed box that touches nothing real is a drawing, not a change to this code.
   if (added.size) {
@@ -215,6 +244,8 @@ export function parseMap(input: unknown): ParseResult {
     if (a.between && !nodes.has(a.between.to)) problems.push(`absence "${a.id}": unknown node "${a.between.to}"`);
     const end = a.between && [a.between.from, a.between.to].find((id) => added.has(id));
     if (end) problems.push(`absence "${a.id}": box "${end}" is a proposed addition; an absence is about the code as it is`);
+    const was = a.between && [a.between.from, a.between.to].find((id) => removed.has(id));
+    if (was) problems.push(`absence "${a.id}": box "${was}" was removed; an absence is about the code as it is`);
   }
   for (const t of map.tour) {
     const refs: [string, readonly string[] | undefined, Set<string>][] = [

@@ -3,6 +3,7 @@
 // No model calls. Python and Go facts need `initTreeSitter()` to have been awaited once; TS/JS needs nothing.
 import {
   DEFAULT_IGNORE,
+  carryResolver,
   createFactsIndex,
   fileExistsIn,
   findFetchSites,
@@ -13,8 +14,10 @@ import {
   squash,
   symbolNames,
   type CallFact,
+  type Exists,
   type FileFacts,
 } from '@illuminate/facts';
+import { commitInfo, createBaseReader, lineDiff, type BaseReader } from './base';
 import { isAddition, type CodeMap, type Evidence, type MapAbsence, type MapEdge, type MapNode, type Proposal } from './format';
 import { createRepoReader, isSecretPath, type RepoReader } from './repo';
 import { checkScreen, type ScreenCheck } from './screens';
@@ -33,7 +36,15 @@ export type ProposalCheck = { kind: Proposal['kind']; state: 'pending' | 'done' 
 /** `fact`: the extracted code facts back the claim. `text`: the cited lines say what the claim says. */
 export type Proof = 'fact' | 'text';
 export type EvidenceCheck = { file: string; line: number; ok: boolean; foundAt: number | null; reason: string | null };
-export type ClaimCheck = { status: Status; proof: Proof | null; evidence: EvidenceCheck[]; reasons: string[]; proposal?: ProposalCheck };
+/**
+ * On a map of a change (`since`): how this box or arrow differs from that commit, worked out from the two versions of
+ * the code. `added`: it wasn't there. `changed`: the function is there in both and its code differs (`diff` holds the
+ * lines, see `lineDiff`). `removed`: the map says it has gone, and it was there then and isn't now.
+ */
+export type ChangeCheck = { kind: 'added' | 'changed' | 'removed'; diff?: string[] };
+export type ClaimCheck = { status: Status; proof: Proof | null; evidence: EvidenceCheck[]; reasons: string[]; proposal?: ProposalCheck; change?: ChangeCheck };
+/** What a map of a change is compared with. `commit` is null when `ref` names no commit in this repo. */
+export type SinceCheck = { ref: string; commit: string | null; date: string | null; subject: string | null };
 /** `searched` is how many files the search covered, so a person can judge whether it looked widely enough. */
 export type AbsenceCheck = { status: Exclude<Status, 'proposed'>; found: number; searched: number; locations: { file: string; line: number }[]; reasons: string[] };
 export type TourCheck = { status: 'ok' | 'mentions-unconfirmed'; unconfirmed: string[] };
@@ -45,7 +56,9 @@ export type CheckReport = {
   /** By box id, for boxes that carry a screen. Not counted as claims: a screen that fails is simply not shown. */
   screens: Record<string, ScreenCheck>;
   /** `claims` counts what the map says about the code as it is; what is only proposed is counted under `proposals`. */
-  summary: { claims: number; confirmed: number; unconfirmed: number; proposals: { pending: number; done: number } };
+  summary: { claims: number; confirmed: number; unconfirmed: number; proposals: { pending: number; done: number }; changes?: { added: number; changed: number; removed: number } };
+  /** Only on a map of a change. */
+  since?: SinceCheck;
 };
 export type CheckOptions = {
   /** Extra globs to leave out of searches (build output and `.illuminate/` are always left out). */
@@ -62,15 +75,19 @@ const short = (text: string) => (text.length > 60 ? `${text.slice(0, 57)}…` : 
 export function check(map: CodeMap, root: string, options: CheckOptions = {}): CheckReport {
   const repo = createRepoReader(root);
   const window = options.lineWindow ?? 3;
-  const facts = factsFor(repo);
+  const now: Side = { repo, facts: factsFor(repo, fileExistsIn(repo.root)) };
+  // A map of a change: the same facts, read from the commit it is compared with.
+  const baseRepo = map.since ? createBaseReader(repo.root, map.since) : null;
+  const base: BaseSide | null = baseRepo && { repo: baseRepo, facts: factsFor(baseRepo, carryResolver((p: string) => baseRepo.has(p), fileExistsIn(repo.root))) };
+  const cmp: Compare | null = map.since ? { ref: map.since, base } : null;
   const byId = new Map(map.nodes.map((n) => [n.id, n]));
   let repoFiles: string[] | null = null;
   const files = () => (repoFiles ??= listRepoFiles(repo.root, [...DEFAULT_IGNORE, ...(options.ignore ?? [])]).filter((f) => !isSecretPath(f)));
 
   const nodes: Record<string, ClaimCheck> = {};
-  for (const n of map.nodes) nodes[n.id] = checkNode(n, repo, facts, window);
+  for (const n of map.nodes) nodes[n.id] = checkNode(n, now, cmp, window);
   const edges: Record<string, ClaimCheck> = {};
-  for (const e of map.edges) edges[e.id] = checkEdge(e, byId, repo, facts, window);
+  for (const e of map.edges) edges[e.id] = checkEdge(e, byId, now, cmp, window);
   const absences: Record<string, AbsenceCheck> = {};
   for (const a of map.absences) absences[a.id] = checkAbsence(a, repo, files());
 
@@ -95,6 +112,7 @@ export function check(map: CodeMap, root: string, options: CheckOptions = {}): C
   const proposals = [...Object.values(nodes), ...Object.values(edges)].flatMap((c) => (c.proposal ? [c.proposal] : []));
   const confirmed = count('confirmed');
   const unconfirmed = count('unconfirmed');
+  const changes = [...Object.values(nodes), ...Object.values(edges)].flatMap((c) => (c.change ? [c.change.kind] : []));
   return {
     nodes, edges, absences, tour, screens,
     summary: {
@@ -102,7 +120,9 @@ export function check(map: CodeMap, root: string, options: CheckOptions = {}): C
       confirmed,
       unconfirmed,
       proposals: { pending: proposals.filter((p) => p.state === 'pending').length, done: proposals.filter((p) => p.state === 'done').length },
+      ...(cmp && { changes: { added: changes.filter((k) => k === 'added').length, changed: changes.filter((k) => k === 'changed').length, removed: changes.filter((k) => k === 'removed').length } }),
     },
+    ...(cmp && { since: { ref: cmp.ref, commit: baseRepo?.commit ?? null, ...(baseRepo ? commitInfo(repo.root, baseRepo.commit) : { date: null, subject: null }) } }),
   };
 }
 
@@ -118,8 +138,8 @@ export function settledProposals(report: CheckReport): { id: string; what: 'box'
 }
 
 /** Facts per file, extracted on demand and cached for one check. */
-function factsFor(repo: RepoReader) {
-  const index = createFactsIndex(repo.root, fileExistsIn(repo.root), repo.text);
+function factsFor(repo: RepoReader, exists: Exists) {
+  const index = createFactsIndex(repo.root, exists, repo.text);
   const cache = new Map<string, FileFacts | null>();
   const get = (file: string): FileFacts | null => {
     if (!cache.has(file)) {
@@ -144,6 +164,11 @@ function factsFor(repo: RepoReader) {
   };
 }
 type Facts = ReturnType<typeof factsFor>;
+/** One version of the code: the working tree, or the commit a map of a change is compared with. */
+type Side = { repo: RepoReader; facts: Facts };
+/** Set for a map of a change. `base` is null when its `since` names no commit here, so nothing can be compared. */
+type BaseSide = { repo: BaseReader; facts: Facts };
+type Compare = { ref: string; base: BaseSide | null };
 
 function checkEvidence(repo: RepoReader, e: Evidence, window: number): EvidenceCheck {
   const base = { file: e.file, line: e.line };
@@ -189,12 +214,74 @@ function asProposal(kind: Proposal['kind'], c: ClaimCheck): ClaimCheck {
   return inCode ? { ...c, proposal: { kind, state: 'pending' } } : { ...c, status: 'proposed', proposal: { kind, state: 'done' } };
 }
 
-function checkNode(n: MapNode, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
+function checkNode(n: MapNode, now: Side, cmp: Compare | null, window: number): ClaimCheck {
+  if (n.removed) return checkGone(cmp, (side) => checkNodeNow(n, side.repo, side.facts, window), (base) => nodeStillThere(n, now, base));
+  const c = checkNodeAsIs(n, now.repo, now.facts, window);
+  // Only what is in the code and isn't a proposal can have changed since.
+  if (!cmp?.base || n.proposed || c.status !== 'confirmed') return c;
+  const change = nodeChange(n, now, cmp.base);
+  return change ? { ...c, change } : c;
+}
+
+function checkNodeAsIs(n: MapNode, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
   if (!n.proposed) return checkNodeNow(n, repo, facts, window);
   if (!isAddition(n)) return asProposal(n.proposed.kind, checkNodeNow(n, repo, facts, window));
   // An addition is in the code once the function it names exists. Without a name there is nothing to look for.
   if (!n.symbol) return asProposal('add', { status: 'unconfirmed', proof: null, evidence: [], reasons: ['it names no `symbol`, so the code can\'t show whether it has been built'] });
   return asProposal('add', checkNodeNow({ ...n, evidence: [] }, repo, facts, window));
+}
+
+/**
+ * Code the map says was removed: it must check out against the commit the map is compared with (its lines are cited
+ * as they were then), and no longer be in the code now. Anything else is a claim that doesn't hold.
+ */
+function checkGone(cmp: Compare | null, at: (side: Side) => ClaimCheck, stillThere: (base: Side) => boolean): ClaimCheck {
+  const fail = (evidence: EvidenceCheck[], reasons: string[]): ClaimCheck => ({ status: 'unconfirmed', proof: null, evidence, reasons });
+  if (!cmp) return fail([], ['the map names no commit (`since`) for this to have been removed after']);
+  if (!cmp.base) return fail([], [`"${cmp.ref}" isn't a commit in this repo, so there is nothing to compare with`]);
+  const was = at(cmp.base);
+  if (was.status !== 'confirmed') return fail(was.evidence, was.reasons.map((r) => `in the code as it was: ${r}`));
+  if (stillThere(cmp.base)) return fail(was.evidence, ['it is still in the code, so it wasn\'t removed (drop `removed`)']);
+  return { ...was, change: { kind: 'removed' } };
+}
+
+/** Whether `text` is on some line of `file` in that version of the code. */
+function hasLine(side: Side, file: string, text: string): boolean {
+  const source = side.repo.text(file);
+  if (source === null) return false;
+  const want = squash(text);
+  return source.split('\n').some((line) => squash(line).includes(want));
+}
+
+const symbolIn = (side: Side, symbol: string) => side.facts.get(fileOf(symbol))?.symbols.find((s) => s.id === symbol) ?? null;
+
+/** A removed box is still there while its function exists, or (when it names none) while any line it cites does. */
+function nodeStillThere(n: MapNode, now: Side, _base: Side): boolean {
+  if (n.symbol && now.facts.get(fileOf(n.symbol))) return !!symbolIn(now, n.symbol);
+  return n.evidence.some((e) => hasLine(now, e.file, e.text));
+}
+
+/**
+ * How a box that is in the code differs from the commit the map is compared with. A box that names a function is
+ * compared as that function: new if it wasn't there, changed if its signature or body differs. A box that names none
+ * goes by its cited lines: new if none of their files existed, changed if a cited line wasn't there.
+ */
+function nodeChange(n: MapNode, now: Side, base: BaseSide): ChangeCheck | null {
+  if (n.symbol) {
+    const file = fileOf(n.symbol);
+    const cur = symbolIn(now, n.symbol);
+    if (cur && !base.repo.has(file)) return { kind: 'added' };
+    if (cur && base.facts.get(file)) {
+      const old = symbolIn(base, n.symbol);
+      if (!old) return { kind: 'added' };
+      if (old.sigHash === cur.sigHash && old.bodyHash === cur.bodyHash) return null;
+      const diff = lineDiff(base.repo.text(file)!.slice(old.span.start, old.span.end), now.repo.text(file)!.slice(cur.span.start, cur.span.end));
+      return { kind: 'changed', ...(diff?.length && { diff }) };
+    }
+  }
+  if (!n.evidence.length) return null;
+  if (n.evidence.every((e) => !base.repo.has(e.file))) return { kind: 'added' };
+  return n.evidence.some((e) => !hasLine(base, e.file, e.text)) ? { kind: 'changed' } : null;
 }
 
 function checkNodeNow(n: MapNode, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
@@ -206,15 +293,36 @@ function checkNodeNow(n: MapNode, repo: RepoReader, facts: Facts, window: number
   return result(evidence, reasons, 'fact');
 }
 
-function checkEdge(e: MapEdge, byId: ReadonlyMap<string, MapNode>, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
-  if (!e.proposed) return checkEdgeNow(e, byId, repo, facts, window);
-  if (!isAddition(e)) return asProposal(e.proposed.kind, checkEdgeNow(e, byId, repo, facts, window));
-  // An added arrow is in the code once the facts show the call, request or import it stands for. A `then` arrow, or one
-  // between boxes that name no function, is proven only by cited lines, and an addition has none yet.
+/**
+ * Whether the code facts alone can show an arrow: a call, request or import between boxes that name their code. A
+ * `then` arrow, or one between boxes that name no function, is proven only by the lines it cites.
+ */
+function factBacked(e: MapEdge, byId: ReadonlyMap<string, MapNode>): boolean {
   const from = byId.get(e.from);
   const to = byId.get(e.to);
-  const provable = e.kind !== 'then' && !!from && !!to && (e.kind !== 'calls' || (!!from.symbol && !!to.symbol)) && [from, to].every((n) => n.symbol || n.evidence.length);
-  if (!provable) return asProposal('add', { status: 'unconfirmed', proof: null, evidence: [], reasons: ['the code facts can\'t show whether this arrow has been built (it isn\'t a call, request or import between named functions)'] });
+  return e.kind !== 'then' && !!from && !!to && (e.kind !== 'calls' || (!!from.symbol && !!to.symbol)) && [from, to].every((n) => n.symbol || n.evidence.length);
+}
+
+function checkEdge(e: MapEdge, byId: ReadonlyMap<string, MapNode>, now: Side, cmp: Compare | null, window: number): ClaimCheck {
+  const inFacts = (side: Side) => factBacked(e, byId) && checkEdgeNow({ ...e, evidence: [] }, byId, side.repo, side.facts, window).status === 'confirmed';
+  if (e.removed) {
+    // Gone when the facts no longer show it, or (for an arrow only its lines prove) when a line it cites has gone.
+    const stillThere = () => (factBacked(e, byId) ? inFacts(now) : e.evidence.every((x) => hasLine(now, x.file, x.text)));
+    return checkGone(cmp, (side) => checkEdgeNow(e, byId, side.repo, side.facts, window), stillThere);
+  }
+  const c = checkEdgeAsIs(e, byId, now.repo, now.facts, window);
+  if (!cmp?.base || e.proposed || c.status !== 'confirmed') return c;
+  // An arrow is new, or it isn't: new when the facts didn't show it then, or when a line that proves it wasn't there.
+  const base = cmp.base;
+  const added = factBacked(e, byId) ? !inFacts(base) : e.evidence.some((x) => !hasLine(base, x.file, x.text));
+  return added ? { ...c, change: { kind: 'added' } } : c;
+}
+
+function checkEdgeAsIs(e: MapEdge, byId: ReadonlyMap<string, MapNode>, repo: RepoReader, facts: Facts, window: number): ClaimCheck {
+  if (!e.proposed) return checkEdgeNow(e, byId, repo, facts, window);
+  if (!isAddition(e)) return asProposal(e.proposed.kind, checkEdgeNow(e, byId, repo, facts, window));
+  // An added arrow is in the code once the facts show the call, request or import it stands for.
+  if (!factBacked(e, byId)) return asProposal('add', { status: 'unconfirmed', proof: null, evidence: [], reasons: ['the code facts can\'t show whether this arrow has been built (it isn\'t a call, request or import between named functions)'] });
   return asProposal('add', checkEdgeNow({ ...e, evidence: [] }, byId, repo, facts, window));
 }
 

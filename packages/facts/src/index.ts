@@ -1,6 +1,7 @@
 // @illuminate/facts: what the code says, read deterministically. Imports, symbols, calls, routes, table reads and writes,
 // and fetch → route links for TS/JS (oxc) and Python/Go (tree-sitter). No model calls.
 export type * from './contracts/facts';
+export { carryResolver } from './facts/context';
 export { diffSymbols } from './facts/diff';
 export { extract, extractFacts, settleCalls, type ExtractContext, type PackageEntry, type Resolve } from './facts/extract';
 export { hashText, squash } from './facts/hash';

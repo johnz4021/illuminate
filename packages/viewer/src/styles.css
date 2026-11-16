@@ -23,6 +23,8 @@
   --ok-soft: #e4f2ea;
   --dead: #cf4a33;
   --dead-soft: #fbe5df;
+  --changed: #a8620c;
+  --changed-soft: #fbefd8;
   --focus-bg: #23292a;
   --focus-ink: #eef1ee;
   --focus-muted: #9da7a2;
@@ -37,7 +39,7 @@
     --bg: #151a1b; --paper: #1a1f20; --surface: #1f2526; --ink: #e8ece9; --muted: #9aa39e; --line: #2f3637;
     --line-strong: #6c7571; --dot: #2b3233; --path: #e8ece9; --accent: #5cc2bd; --accent-soft: #17302f;
     --lamp: #f2c230; --lamp-soft: #2f2a15; --lamp-glow: rgba(242, 194, 48, 0.3); --ai: #b49af0; --ai-soft: #262036;
-    --ok: #5fd39a; --ok-soft: #13291e; --dead: #ff7a66; --dead-soft: #351c18;
+    --ok: #5fd39a; --ok-soft: #13291e; --dead: #ff7a66; --dead-soft: #351c18; --changed: #f0b25e; --changed-soft: #33260f;
     --focus-bg: #2a3132; --focus-ink: #eef1ee; --focus-muted: #a2aca7; --focus-line: #414a4b;
     --shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.6); color-scheme: dark;
   }
@@ -420,3 +422,72 @@ body.resizing { cursor: col-resize; user-select: none; }
 .thumb-image { display: grid; place-items: center; padding: 8px; }
 .thumb-image img { max-width: 100%; max-height: 100%; }
 .thumb-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* A map of a change: what the checker found new (green), different (amber) or gone (red, struck through) since a commit. */
+.badge-change { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.cmark { font-weight: 700; flex: none; }
+.step.change-added { border-color: var(--ok); background: color-mix(in srgb, var(--ok-soft) 55%, var(--surface)); box-shadow: inset 5px 0 0 var(--ok); }
+.step.change-changed { border-color: var(--changed); background: color-mix(in srgb, var(--changed-soft) 55%, var(--surface)); box-shadow: inset 5px 0 0 var(--changed); }
+.step.change-removed { border-color: var(--dead); border-style: dashed; background: color-mix(in srgb, var(--dead-soft) 45%, var(--surface)); }
+.step.change-removed .step-name, .step.change-removed .j-name { text-decoration: line-through; text-decoration-color: var(--dead); color: var(--muted); }
+.step.change.hl { background: var(--lamp-soft); }
+.step.change-added.selected { box-shadow: inset 5px 0 0 var(--ok), 0 0 0 5px var(--lamp-glow); }
+.step.change-changed.selected { box-shadow: inset 5px 0 0 var(--changed), 0 0 0 5px var(--lamp-glow); }
+.change-added .badge-change, .change-added .cmark { color: var(--ok); }
+.change-changed .badge-change, .change-changed .cmark { color: var(--changed); }
+.change-removed .badge-change, .change-removed .cmark { color: var(--dead); }
+.change-added .badge-change { background: var(--ok-soft); }
+.change-changed .badge-change { background: var(--changed-soft); }
+.change-removed .badge-change { background: var(--dead-soft); }
+.step.jstep.change { box-shadow: none; }
+.react-flow__edge.link.change-added .react-flow__edge-path { stroke: var(--ok); stroke-width: 2; }
+.react-flow__edge.link.change-removed .react-flow__edge-path { stroke: var(--dead); stroke-dasharray: 2 5; }
+.link-label.change-added { color: var(--ok); font-weight: 600; }
+.link-label.change-removed { color: var(--dead); }
+.link-label.change-removed .link-text { text-decoration: line-through; }
+.map-status.changes { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-weight: 500; }
+.change-note { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--changed); background: var(--changed-soft); border-radius: 0 6px 6px 0; font-size: 13px; line-height: 1.45; }
+.change-note.change-note-added { border-left-color: var(--ok); background: var(--ok-soft); }
+.change-note.change-note-removed { border-left-color: var(--dead); background: var(--dead-soft); }
+.change-note .diff { margin-top: 8px; background: var(--surface); }
+.card-focus .change-note, .card-selected .change-note { color: var(--ink); }
+.step.change-added:hover { box-shadow: inset 5px 0 0 var(--ok), 0 0 0 4px var(--line); }
+.step.change-changed:hover { box-shadow: inset 5px 0 0 var(--changed), 0 0 0 4px var(--line); }
+.step.j-choice.change, .step.j-choice.change:hover { background: transparent; border-color: transparent; box-shadow: none; }
+.j-choice.change-added .j-diamond polygon { stroke: var(--ok); fill: var(--ok-soft); }
+.j-choice.change-changed .j-diamond polygon { stroke: var(--changed); fill: var(--changed-soft); }
+.j-choice.change-removed .j-diamond polygon { stroke: var(--dead); fill: var(--dead-soft); stroke-dasharray: 6 5; }
+.change-size { font-weight: 500; font-family: var(--mono); font-size: 10.5px; }
+/* The key to a map of a change, with the Before / After / Both switch. */
+.change-key { display: flex; align-items: center; gap: 14px; padding: 5px 14px 5px 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--muted); box-shadow: var(--shadow); }
+.change-key-title { font-weight: 600; color: var(--ink); }
+.key-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.key-swatch { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--ink); background: var(--surface); flex: none; }
+.key-swatch.key-added { border-color: var(--ok); background: var(--ok-soft); }
+.key-swatch.key-changed { border-color: var(--changed); background: var(--changed-soft); }
+.key-swatch.key-removed { border-color: var(--dead); border-style: dashed; background: var(--dead-soft); }
+.seg { display: inline-flex; background: var(--bg); border-radius: 999px; padding: 2px; }
+.seg-btn { border: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--muted); padding: 4px 12px; border-radius: 999px; cursor: pointer; }
+.seg-btn:hover { color: var(--ink); }
+.seg-btn.on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(30, 36, 33, 0.18); }
+/* In the Before or After view, what isn't part of that version is a shadow: an empty dashed outline with grey words.
+   (Dimming, for what a walkthrough stop isn't about, keeps the box solid and lowers its opacity instead.) */
+.step.ghost, .step.ghost:hover, .step.ghost.kind-job, .step.ghost.kind-external { background: transparent; border: 1.5px dashed var(--line-strong); box-shadow: none; opacity: 0.5; }
+.step.ghost .step-name, .step.ghost .j-name { color: var(--muted); font-weight: 500; text-decoration: none; }
+.step.ghost .step-code { border-style: dashed; background: transparent; }
+.step.ghost .tick, .step.ghost .cmark { color: var(--muted); }
+.step.ghost.selected { box-shadow: 0 0 0 5px var(--lamp-glow); opacity: 0.8; }
+.badge-ghost { font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; font-style: italic; }
+.j-choice.ghost .j-diamond polygon { stroke: var(--line-strong); stroke-dasharray: 6 5; fill: transparent; }
+.react-flow__edge.link.ghost .react-flow__edge-path { stroke: var(--line-strong); stroke-width: 1.2; stroke-dasharray: 3 6; opacity: 0.5; }
+.link-label.ghost { color: var(--muted); font-weight: 400; opacity: 0.55; }
+.link-label.ghost .link-text { text-decoration: none; }
+.key-swatch.key-ghost { border: 1.5px dashed var(--line-strong); background: transparent; }
+.step.j-choice.ghost, .step.j-choice.ghost:hover { border-color: transparent; }
+/* In the Before or After view a changed box is an ordinary box with an amber edge and a small badge: enough to find it
+   when flipping, without turning a picture of one version back into a diff. */
+.step.change-changed.quiet { background: var(--surface); border-color: var(--ink); }
+.step.change-changed.quiet.hl { background: var(--lamp-soft); }
+.step.jstep.change-changed.quiet { border-color: var(--changed); }
+.quiet .badge-change { background: transparent; padding: 0; font-weight: 500; }
+.key-swatch.key-quiet { background: var(--surface); border-color: var(--ink); box-shadow: inset 4px 0 0 var(--changed); }

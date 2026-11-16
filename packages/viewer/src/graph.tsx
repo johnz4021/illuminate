@@ -8,6 +8,7 @@ import {
   EdgeLabelRenderer,
   Handle,
   MarkerType,
+  Panel,
   Position,
   ReactFlow,
   getBezierPath,
@@ -40,6 +41,14 @@ type StepData = {
   hl: boolean;
   dim: boolean;
   fresh: boolean;
+  /** On a map of a change: how this box differs from the commit it is compared with (the checker's verdict). */
+  change: Change | null;
+  /** For a changed box: how many lines were added and removed, e.g. "+3 −1". */
+  changeSize: string | null;
+  /** In the Before or After view: this box isn't part of that version, so it is drawn as a shadow of itself. */
+  ghost: Ghost | null;
+  /** In the Before or After view a changed box is marked quietly (an edge and a small badge), and says which side this is. */
+  quiet: 'before' | 'after' | null;
   /** Set on a journey map: the box is drawn as part of a user flow, with no code on it. */
   journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null };
   onClick: (additive: boolean) => void;
@@ -52,6 +61,53 @@ const PROPOSAL: Record<Proposed['kind'], { pending: string; done: string; mark: 
   remove: { pending: 'Would be removed', done: 'Removed', mark: '−', title: 'Proposed: this code would be removed' },
 };
 const proposalClass = (p: Proposed | null | undefined) => p && `proposal proposal-${p.kind} proposal-${p.state}`;
+type Change = 'added' | 'changed' | 'removed';
+/** What a difference from the commit a map is compared with is called on the map. */
+const CHANGE: Record<Change, { label: string; mark: string; title: string }> = {
+  added: { label: 'Added', mark: '+', title: 'New since the commit this map is compared with' },
+  changed: { label: 'Changed', mark: '~', title: 'Different from the commit this map is compared with' },
+  removed: { label: 'Removed', mark: '−', title: 'Was in the code at the commit this map is compared with, and is gone now' },
+};
+const changeClass = (c: Change | null | undefined) => c && `change change-${c}`;
+/** Not in the version being shown: added after it (`later`), or removed before it (`gone`). */
+type Ghost = 'later' | 'gone';
+const GHOST: Record<Ghost, { label: string; title: string }> = {
+  later: { label: 'Not there yet', title: 'Added after this version of the code' },
+  gone: { label: 'Gone', title: 'Removed: it was in the code before, and isn’t now' },
+};
+/** "+3 −1" from a changed box's lines, so the size of the change shows without opening it. */
+function changeSize(diff: readonly string[] | undefined): string | null {
+  if (!diff?.length) return null;
+  const added = diff.filter((l) => l.startsWith('+ ')).length;
+  const removed = diff.filter((l) => l.startsWith('- ')).length;
+  return [added && `+${added}`, removed && `−${removed}`].filter(Boolean).join(' ') || null;
+}
+
+type When = 'both' | 'before' | 'after';
+const WHEN: [When, string, string][] = [
+  ['before', 'Before', 'The code as it was at that commit; what was added since is a shadow'],
+  ['after', 'After', 'The code as it is now; what was removed is a shadow'],
+  ['both', 'Both', 'The code as it is now, with what was removed drawn in too'],
+];
+
+/** The key to a map of a change: which version is shown, and what each colour means in it. */
+function ChangeKey({ commit, when, onWhen }: { commit: string; when: When; onWhen: (w: When) => void }) {
+  return (
+    <div className="change-key">
+      <div className="seg" role="group" aria-label="Which version of the code to show">
+        {WHEN.map(([w, label, title]) => (
+          <button key={w} className={cls('seg-btn', when === w && 'on')} title={title} aria-pressed={when === w} onClick={() => onWhen(w)}>{label}</button>
+        ))}
+      </div>
+      <span className="change-key-title">{when === 'before' ? `The code at ${commit}` : when === 'after' ? 'The code now' : `Now, compared with ${commit}`}</span>
+      {when === 'both' && <span className="key-item"><i className="key-swatch" />Same as before</span>}
+      {when === 'both' && <span className="key-item"><i className="key-swatch key-added" />Added</span>}
+      <span className="key-item"><i className={cls('key-swatch key-changed', when !== 'both' && 'key-quiet')} />{when === 'before' ? 'Changes later' : 'Changed'}</span>
+      {when === 'both' && <span className="key-item"><i className="key-swatch key-removed" />Removed (only in the before)</span>}
+      {when !== 'both' && <span className="key-item"><i className="key-swatch key-ghost" />{when === 'before' ? 'Not there yet' : 'Gone'}</span>}
+    </div>
+  );
+}
 type AreaData = { label: string; note: string | null; dim: boolean };
 type LinkData = {
   label: string;
@@ -61,6 +117,8 @@ type LinkData = {
   /** On a wrapped journey, an arrow between rows runs along the gap between them, at this height. */
   wrapY?: number;
   proposal?: Proposed | null;
+  change?: Change | null;
+  ghost?: Ghost | null;
   confirmed: boolean;
   hl: boolean;
   dim: boolean;
@@ -96,7 +154,7 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
   return (
     // `nopan`: pressing on a step must not start a canvas pan, or the pan can swallow the click.
     <div
-      className={cls('step', 'nopan', `kind-${data.kind}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
+      className={cls('step', 'nopan', `kind-${data.kind}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.quiet && 'quiet', data.ghost && 'ghost', data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
       onClick={(e) => {
         e.stopPropagation();
         data.onClick(e.shiftKey || e.metaKey);
@@ -104,10 +162,12 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
     >
       <Handles />
       {/* Plain steps need no label; the other kinds say what they are. */}
-      {(KIND[data.kind] || data.fresh || data.screen || data.proposal) && (
+      {(KIND[data.kind] || data.fresh || data.screen || data.proposal || data.change || data.ghost) && (
         <div className="step-head">
+          {data.ghost && <span className="badge-ghost" title={GHOST[data.ghost].title}>{GHOST[data.ghost].label}</span>}
           {data.proposal && <span className="badge-proposal">{PROPOSAL[data.proposal.kind][data.proposal.state]}</span>}
-          {KIND[data.kind] && !data.proposal && <><i className="step-mark" aria-hidden="true">{KIND[data.kind]![1]}</i>{KIND[data.kind]![0]}</>}
+          {data.change && <span className="badge-change" title={CHANGE[data.change].title}>{data.quiet === 'before' ? 'Changes later' : CHANGE[data.change].label}{data.changeSize && !data.quiet && <span className="change-size"> {data.changeSize}</span>}</span>}
+          {KIND[data.kind] && !data.proposal && !data.change && !data.ghost && <><i className="step-mark" aria-hidden="true">{KIND[data.kind]![1]}</i>{KIND[data.kind]![0]}</>}
           {data.screen && <span className="badge-screen" title="Select this step to see the screen">▣ Screen</span>}
           {data.fresh && <span className="badge-new">New</span>}
         </div>
@@ -118,6 +178,8 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
           ? <span className="pmark">+</span>
           : data.proposal?.state === 'done' && data.proposal.kind !== 'add'
             ? <span className="pmark">{PROPOSAL[data.proposal.kind].mark}</span>
+            : data.change && data.confirmed
+            ? <span className="cmark">{CHANGE[data.change].mark}</span>
             : <span className={data.confirmed ? 'tick' : 'qmark'}>{data.confirmed ? '✓' : '?'}</span>}
         <span className="step-sub">{data.sub}</span>
       </div>
@@ -131,7 +193,7 @@ function JourneyNode({ data }: { data: StepData }) {
   const p = data.proposal;
   return (
     <div
-      className={cls('step', 'jstep', 'nopan', `j-${j.shape}`, j.show && 'j-pictured', j.outside && 'j-outside', !data.confirmed && 'unconfirmed', proposalClass(p), data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
+      className={cls('step', 'jstep', 'nopan', `j-${j.shape}`, j.show && 'j-pictured', j.outside && 'j-outside', !data.confirmed && 'unconfirmed', proposalClass(p), changeClass(data.change), data.quiet && 'quiet', data.ghost && 'ghost', data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
       style={{ width: j.w, height: j.h }}
       onClick={(e) => {
         e.stopPropagation();
@@ -147,6 +209,8 @@ function JourneyNode({ data }: { data: StepData }) {
       )}
       <div className="j-tags">
         {p && <span className="badge-proposal">{PROPOSAL[p.kind][p.state]}</span>}
+        {data.ghost && <span className="badge-ghost" title={GHOST[data.ghost].title}>{GHOST[data.ghost].label}</span>}
+        {data.change && <span className="badge-change" title={CHANGE[data.change].title}>{data.quiet === 'before' ? 'Changes later' : CHANGE[data.change].label}</span>}
         {!data.confirmed && <span className="j-q" title="The checker couldn't confirm this against the code">?</span>}
         {data.fresh && <span className="badge-new">New</span>}
       </div>
@@ -217,7 +281,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
       <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={18} />
       <EdgeLabelRenderer>
         <div
-          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
+          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.ghost && 'ghost', data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
           style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
           onClick={(e) => {
             e.stopPropagation();
@@ -226,6 +290,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
         >
           {data.variant === 'absence' && <span className="gap-q" aria-hidden="true">?</span>}
           {data.proposal && <span className="pmark" title={data.proposal.state === 'done' ? PROPOSAL[data.proposal.kind].done : PROPOSAL[data.proposal.kind].title}>{data.proposal.state === 'done' && data.proposal.kind === 'add' ? '✓' : PROPOSAL[data.proposal.kind].mark}</span>}
+          {data.change && <span className="cmark" title={CHANGE[data.change].title}>{CHANGE[data.change].mark}</span>}
           <span className="link-text">{data.label}</span>
           {!data.confirmed && data.variant === 'edge' && <span className="q"> ?</span>}
         </div>
@@ -282,6 +347,16 @@ export function MapGraph(p: GraphProps) {
   const key = layoutKey(p.map, extra, p.added, pictured);
   const [layout, setLayout] = useState<{ key: string; layout: Layout } | null>(null);
   const rf = useReactFlow();
+  // On a map of a change: both versions at once, or only the code as it was, or only the code as it is now. Boxes keep
+  // their places in all three, so flipping between Before and After shows what moved in and out.
+  const [when, setWhen] = useState<When>('both');
+  const comparing = !!p.report?.since?.commit;
+  const view: When = comparing ? when : 'both';
+  const changeOf = (id: string): Change | null => p.report?.nodes[id]?.change?.kind ?? p.report?.edges[id]?.change?.kind ?? null;
+  /** What isn't part of the version being shown stays on the map as a shadow, so the map keeps its shape. */
+  const ghostOf = (id: string): Ghost | null => (view === 'before' && changeOf(id) === 'added' ? 'later' : view === 'after' && changeOf(id) === 'removed' ? 'gone' : null);
+  /** In a single version nothing is "added" or "removed": it is simply there, or a shadow. What changed keeps its mark. */
+  const drawnAs = (kind: Change | null) => (view === 'both' || kind === 'changed' ? kind : null);
 
   useEffect(() => {
     let live = true;
@@ -347,6 +422,10 @@ export function MapGraph(p: GraphProps) {
           hl: !!lit?.has(n.id),
           dim: !!lit && !lit.has(n.id),
           fresh: p.fresh.includes(n.id),
+          change: drawnAs(p.report?.nodes[n.id]?.change?.kind ?? null),
+          changeSize: changeSize(p.report?.nodes[n.id]?.change?.diff),
+          ghost: ghostOf(n.id),
+          quiet: view === 'both' ? null : view,
           ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null } }),
           onClick: (additive) => p.onSelect('nodes', n.id, additive),
         },
@@ -355,7 +434,7 @@ export function MapGraph(p: GraphProps) {
       }];
     });
     return [...areaNodes, ...stepNodes];
-  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured]);
+  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured, view]);
 
   const edges = useMemo((): LinkEdgeT[] => {
     if (!layout) return [];
@@ -381,6 +460,9 @@ export function MapGraph(p: GraphProps) {
     const out: LinkEdgeT[] = p.map.edges.map((e) => {
       const confirmed = !!p.report && p.report.edges[e.id]?.status !== 'unconfirmed';
       const proposal = p.report?.edges[e.id]?.proposal ?? null;
+      const change = drawnAs(p.report?.edges[e.id]?.change?.kind ?? null);
+      // An arrow is a shadow when it isn't in this version, or when a box at either end isn't.
+      const shadow = ghostOf(e.id) ?? ghostOf(e.from) ?? ghostOf(e.to);
       const isHl = on(e.id) || (!!lit && lit.has(e.from) && lit.has(e.to) && !hl);
       const variant = 'edge' as const;
       return {
@@ -389,14 +471,16 @@ export function MapGraph(p: GraphProps) {
         target: e.to,
         ...handles(e.from, e.to),
         type: 'link' as const,
-        className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
-        markerEnd: marker(proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
+        className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), changeClass(change), shadow && 'ghost', on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
+        markerEnd: marker(shadow ? 'var(--line)' : proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : change === 'added' ? 'var(--ok)' : change === 'removed' ? 'var(--dead)' : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
         zIndex: 2,
         data: {
           label: e.label,
           wrapY: wrapY(e.from, e.to),
           variant,
           proposal,
+          change,
+          ghost: shadow,
           confirmed,
           hl: isHl,
           dim: !!hl && !on(e.id),
@@ -413,6 +497,8 @@ export function MapGraph(p: GraphProps) {
       const confirmed = p.report?.absences[a.id]?.status === 'confirmed';
       out.push({
         id: `a:${a.id}`,
+        // A gap is about the code as it is now, so it isn't part of the before.
+        hidden: view === 'before',
         source: a.between.from,
         target: a.between.to,
         ...handles(a.between.from, a.between.to),
@@ -457,7 +543,7 @@ export function MapGraph(p: GraphProps) {
       });
     }
     return out;
-  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect]);
+  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view]);
 
   // When the map area changes width (the panel comes and goes, or is dragged wider), keep what was in the middle in
   // the middle, rather than letting the panel slide over the right-hand side of the map.
@@ -525,6 +611,7 @@ export function MapGraph(p: GraphProps) {
       maxZoom={2}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1.3} />
+      {p.report?.since?.commit && <Panel position="top-left"><ChangeKey commit={p.report.since.commit.slice(0, 7)} when={view} onWhen={setWhen} /></Panel>}
     </ReactFlow>
   );
 }

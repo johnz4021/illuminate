@@ -54,6 +54,18 @@ export const PROPOSAL_RULES = [
   '- A program checks proposals against the code too. Proposing to add what the code already has, or to change or remove what it doesn\'t have, is sent back.',
 ];
 
+/** A map of a change: the code as it is now, compared by the checker with a commit; only what has gone is marked. */
+export const CHANGE_RULES = [
+  '## When the question is about a change (what changed, what a commit or a task did, "what did you just change")',
+  '- Set `"since"` on the map to the commit to compare with: "HEAD" for work that isn\'t committed yet, "HEAD~1" for the last commit, or the branch or commit they name. A question about how things work today gets no `since`.',
+  '- Draw the flow the change belongs to as it works now, the map you would draw if they had asked how it works: start where it starts and follow it through, steps that didn\'t change included. The person reads the change against those: a map where every box is new or changed shows no before, and can\'t be told from a map of something else. As a guide, at least a third of the boxes are ones that didn\'t change (the steps the change plugs into, what calls the new code, what it hands on to). Leave out helpers the change added that aren\'t steps of the flow.',
+  '- Cite everything as usual. Don\'t mark what is new or different: a program compares every box and arrow with that commit and marks them itself. It compares a box that names its function (`symbol`) as that function, so give new and changed boxes their `symbol`; for anything else, cite a line that is new.',
+  '- Code that was deleted is a box or arrow with `"removed": true`. It cites the code as it was at that commit: `file`, `line` and `text` from the old version (`git show <since>:<file>` shows it, when you can run git). An arrow to or from a removed box is removed too. The program checks that it was there then and is gone now, so use it only for code that is really gone, not for code that moved or was renamed.',
+  '- In the explanation of each box that changed, say what is different now, in plain words ("Now also tells the listener"), not as a diff.',
+  '- If you made the change yourself in this conversation, draw what you changed and what it touches. Other differences from that commit that aren\'t part of it stay off the map.',
+  '- The walkthrough says what changed first, then follows the changed path in the order things happen.',
+];
+
 /** When a picture of the screen helps, and the three forms the checker accepts. */
 export const SCREEN_RULES = [
   '## Screens (`screen` on a box; optional, and your call)',
@@ -87,6 +99,8 @@ export function makerPrompt(question: string, headStart: string): string {
     '',
     ...PROPOSAL_RULES,
     '',
+    ...CHANGE_RULES,
+    '',
     ...SCREEN_RULES,
     '',
     ...TOUR_RULES,
@@ -94,7 +108,7 @@ export function makerPrompt(question: string, headStart: string): string {
     '## Head start (from a quick automatic scan; it may be incomplete)',
     headStart,
     '',
-    'Return the map: `version` 1, the `question`, `areas`, `nodes`, `edges`, `absences`, `tour`.',
+    'Return the map: `version` 1, the `question`, `areas`, `nodes`, `edges`, `absences`, `tour` (and `view` or `since` when the rules above call for them).',
   ].join('\n');
 }
 
@@ -167,10 +181,23 @@ function questionContext(map: CodeMap, report: CheckReport, selection: readonly 
     JSON.stringify(map),
     unconfirmed.length ? `\nThe checker could not confirm: ${unconfirmed.join(', ')}. Don\'t rely on those without checking.` : '\nThe checker confirmed every claim in the map about the code as it is.',
     ...(proposals.length ? [`These are proposals, not code as it is; the checker says where each stands: ${proposals.join(', ')}.`] : []),
+    ...changesContext(report),
     '',
     selection.length ? `## They selected\n${selection.map((s) => `- ${s.id}: ${s.label}`).join('\n')}` : '## They selected nothing (the question is about the whole map)',
     '',
     `## Their question\n"${question}"`,
+  ];
+}
+
+/** On a map of a change: what the checker found new, different or gone, with the lines of each changed function. */
+function changesContext(report: CheckReport): string[] {
+  if (!report.since) return [];
+  if (!report.since.commit) return [`\nThis map is meant to show a change since "${report.since.ref}", but that isn't a commit in this repo, so nothing could be compared.`];
+  const marked = [...Object.entries(report.nodes), ...Object.entries(report.edges)].flatMap(([id, c]) => (c.change ? [{ id, ...c.change }] : []));
+  return [
+    `\nThis map shows a change: the code as it is now, compared with commit ${report.since.commit.slice(0, 12)}${report.since.subject ? ` ("${report.since.subject}")` : ''}. The checker worked out what differs:`,
+    marked.length ? marked.map((m) => `${m.id} (${m.kind})`).join(', ') + '. Everything else on the map is the same as it was.' : 'nothing on this map differs from that commit.',
+    ...marked.filter((m) => m.diff?.length).flatMap((m) => [`Lines of ${m.id} that changed (- before, + now):`, ...m.diff!]),
   ];
 }
 
@@ -257,6 +284,7 @@ export function explainerPrompt(
     '',
     ...questionContext(map, report, selection, question),
     ...(map.view === 'journey' ? ['', '## This map is a journey', 'It shows only what a person sees and does. Anything you add must be the same: `kind` is `screen`, `action` or `choice`, and no boxes for what goes on behind the screen. Say that part in words.'] : []),
+    ...(map.since ? ['', '## This map shows a change', `It compares the code as it is now with commit ${map.since.slice(0, 12)}, and a program marks what is new or different since then. Anything you add is compared the same way, so don't mark it yourself. Only code that was deleted since that commit gets \`"removed": true\`, citing its lines as they were then (an arrow to or from a removed box is removed too).`] : []),
     ...(missing ? ['', `## Why the map alone wasn't enough\n${missing}`] : []),
     '',
     ...conversationSoFar(earlier),

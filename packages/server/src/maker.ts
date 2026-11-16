@@ -2,7 +2,7 @@
 // gets up to `repairs` chances to fix what didn't check out. A repair returns only the changes (`patchMap`), not the
 // whole map again, since writing the map is most of the time a map takes. The best attempt wins; nothing unconfirmed
 // is hidden.
-import { check, parseMap, patchMap, settledProposals, type CheckReport, type CodeMap, type ParseResult } from '@illuminate/core';
+import { check, parseMap, patchMap, resolveCommit, settledProposals, type CheckReport, type CodeMap, type ParseResult } from '@illuminate/core';
 import type { Agent, Progress } from './agent';
 import { headStart, symbolIndexOf } from './hints';
 import { evidenceRepairPrompt, makerPrompt, patchRepairPrompt, shapeRepairPrompt } from './prompts';
@@ -30,6 +30,17 @@ function applyPatch(map: CodeMap, output: unknown): ParseResult {
   return patchMap(map, raw.data);
 }
 
+/**
+ * A map of a change names what it is compared with (`since`: "HEAD", a branch). That is pinned to the commit it means
+ * right now, so the map shows the same change after the work is committed. A name that is no commit is sent back.
+ */
+function pinned(parsed: ParseResult, root: string): ParseResult {
+  if (!parsed.ok || !parsed.map.since) return parsed;
+  const commit = resolveCommit(root, parsed.map.since);
+  if (!commit) return { ok: false, problems: [`since: "${parsed.map.since}" isn't a commit in this repo. Use "HEAD" for work that isn't committed yet, "HEAD~1" for the last commit, or leave \`since\` out if the map isn't about a change.`] };
+  return { ok: true, map: { ...parsed.map, since: commit } };
+}
+
 export async function makeMap(o: MakeOptions): Promise<MakeResult> {
   const status = (text: string) => o.onProgress?.({ kind: 'status', text });
   status('Scanning the code for ways in, routes and tables');
@@ -51,7 +62,7 @@ export async function makeMap(o: MakeOptions): Promise<MakeResult> {
   let current: CodeMap | null = null;
 
   for (let attempt = 0; ; attempt++) {
-    const parsed: ParseResult = reply === 'map' || !current ? parseMap(withQuestion(res.output, o.question)) : applyPatch(current, res.output);
+    const parsed: ParseResult = pinned(reply === 'map' || !current ? parseMap(withQuestion(res.output, o.question)) : applyPatch(current, res.output), o.root);
     let repair: { prompt: string; reply: 'map' | 'patch' } | null = null;
     if (!parsed.ok) {
       lastProblems = parsed.problems;

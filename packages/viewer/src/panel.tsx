@@ -30,6 +30,13 @@ const PROPOSAL_SAYS = {
   remove: { pending: 'Proposed: this code would be removed.', done: 'This was proposed for removal, and it’s no longer in the code.' },
 } as const;
 
+/** What a difference from the commit a map is compared with means for the person reading it. */
+const CHANGE_SAYS = {
+  added: 'New since',
+  changed: 'Changed since',
+  removed: 'Removed since',
+} as const;
+
 function checkOf(report: CheckReport | null, id: string): ClaimCheck | { status: 'confirmed' | 'unconfirmed'; reasons: string[]; evidence?: never; proposal?: never } | null {
   if (!report) return null;
   return report.nodes[id] ?? report.edges[id] ?? (report.absences[id] ? { status: report.absences[id]!.status, reasons: report.absences[id]!.reasons } : null);
@@ -314,6 +321,8 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
   const what = node ? 'Step' : edge ? 'Connection' : 'Missing connection';
   const proposal = c?.proposal ?? null;
   const note = (node ?? edge)?.proposed?.note;
+  const change = c && 'change' in c ? c.change ?? null : null;
+  const since = report?.since?.commit?.slice(0, 7) ?? 'the commit this map is compared with';
   const gapCheck = gap ? report?.absences[gap.id] ?? null : null;
   if (!open) {
     return (
@@ -335,6 +344,14 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
           {note && <> {note}</>}
         </div>
       )}
+      {change && (
+        <div className={cls('change-note', `change-note-${change.kind}`)}>
+          <strong>{CHANGE_SAYS[change.kind]} {since}.</strong>
+          {change.kind === 'changed' && !change.diff && ' A line it cites wasn’t there then.'}
+          {change.kind === 'removed' && ' It was in the code then and is gone now.'}
+          {change.diff && <pre className="diff">{change.diff.map((l, i) => <span key={i} className={l.startsWith('+ ') ? 'add' : l.startsWith('- ') ? 'del' : ''}>{l}{'\n'}</span>)}</pre>}
+        </div>
+      )}
       {gap && gapCheck && (
         <p>
           {gapCheck.found > gap.matches
@@ -346,7 +363,7 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
       {c && c.status === 'unconfirmed' && <div className="warn small">Couldn't confirm against the code: {c.reasons.join('; ')}</div>}
       {evidence.length > 0 && (
         <div className="basis">
-          <div className="eyebrow">In the code</div>
+          <div className="eyebrow">{change?.kind === 'removed' ? `In the code as it was at ${since}` : 'In the code'}</div>
           <div className="chips">
             {evidence.map((e, i) => {
               const ok = evidenceChecks[i]?.ok ?? false;

@@ -6,6 +6,7 @@ export {
   Edge,
   EdgeKind,
   Evidence,
+  GitRef,
   Node,
   NodeKind,
   Screen,
@@ -21,7 +22,8 @@ export {
   type ParseResult,
 } from './format';
 export { addToMap, freshId, mapIds, patchMap, removeAbsences, removeFromMap, slugify, type MapAdditions, type MapPatch } from './edit';
-export { check, settledProposals, type AbsenceCheck, type CheckOptions, type CheckReport, type ClaimCheck, type EvidenceCheck, type Proof, type ProposalCheck, type Status, type TourCheck } from './check';
+export { commitInfo, createBaseReader, lineDiff, resolveCommit, type BaseReader } from './base';
+export { check, settledProposals, type AbsenceCheck, type ChangeCheck, type SinceCheck, type CheckOptions, type CheckReport, type ClaimCheck, type EvidenceCheck, type Proof, type ProposalCheck, type Status, type TourCheck } from './check';
 export { MAX_FILE_BYTES, SECRET_GLOBS, createRepoReader, isSecretPath, type ReadResult, type RepoReader } from './repo';
 export {
   Capture,

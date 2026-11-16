@@ -1,7 +1,8 @@
 // Preview the whole app without calling Claude: the real server and viewer, on a throwaway copy of the care-app
 // fixture, with a scripted stand-in for Claude (it streams progress, returns the fixture map, answers, proposes a fix).
 // For UI work and demos:  npm run preview   (then open the printed link)
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,44 @@ cpSync(fixture('care-app'), root, { recursive: true });
 const MAP = JSON.parse(readFileSync(fixture('care-app.map.json'), 'utf8'));
 const JOURNEY = JSON.parse(readFileSync(fixture('care-app.journey.json'), 'utf8'));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The copy is a git repo with one commit, so a question about a change has something to compare with.
+const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=preview', '-c', 'user.email=preview@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: root, stdio: 'ignore' });
+try {
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'the care app');
+} catch {
+  // No git here: the change map below will say it can't find its commit.
+}
+
+/**
+ * Asked what changed, the stand-in first makes a change to the copy (a listener is added, the service is edited, the
+ * nightly job is deleted) and returns the map of it. The other scripted answers describe the app before that change.
+ */
+function changeMap() {
+  if (!existsSync(join(root, 'src/automations/listeners.ts'))) {
+    writeFileSync(join(root, 'src/automations/listeners.ts'), "import { bus } from '../events/bus';\nimport { evaluateRules } from './evaluate';\n\nexport function listenForConversions() {\n  bus.on('patient.converted', ({ patientId }) => evaluateRules({ patientId }));\n}\n");
+    const service = join(root, 'src/patients/service.ts');
+    writeFileSync(service, readFileSync(service, 'utf8').replace("  bus.emit('patient.converted', { patientId });", "  console.log('converted', patientId);\n  bus.emit('patient.converted', { patientId });"));
+    rmSync(join(root, 'src/jobs/nightly.ts'), { force: true });
+  }
+  const m = structuredClone(MAP);
+  m.since = 'HEAD';
+  m.absences = [];
+  m.nodes.push({ id: 'l1', area: 'automations', name: 'Hears the announcement', symbol: 'src/automations/listeners.ts#listenForConversions', explain: { concept: 'New: it listens for a patient converting and runs the rules right away.' }, evidence: [{ file: 'src/automations/listeners.ts', line: 5, text: "bus.on('patient.converted'" }] });
+  m.edges.push({ id: 'eh', from: 's4', to: 'l1', kind: 'then', label: 'is heard by', evidence: [{ file: 'src/automations/listeners.ts', line: 5, text: "bus.on('patient.converted'" }] });
+  m.edges.push({ id: 'el', from: 'l1', to: 'u1', kind: 'calls', label: 'runs the rules', evidence: [{ file: 'src/automations/listeners.ts', line: 5, text: 'evaluateRules({ patientId })' }] });
+  m.edges.find((e: { id: string }) => e.id === 'e34').evidence[0].line = 7;
+  for (const x of [m.nodes.find((n: { id: string }) => n.id === 'j1'), m.edges.find((e: { id: string }) => e.id === 'ej')]) x.removed = true;
+  m.tour = [
+    { id: 'c1', title: 'The welcome email now goes out right away', text: 'A listener was added that runs the rules the moment a patient converts, and the nightly job that did it a day late was deleted.', focus: { nodes: ['l1', 'j1'] } },
+    { id: 'c2', title: 'What was added', text: 'The new listener hears the announcement and runs the automation rules straight away.', focus: { nodes: ['s4', 'l1', 'u1'], edges: ['eh', 'el'] } },
+    { id: 'c3', title: 'What was removed', text: 'The nightly job, and its call to the rules, are gone.', focus: { nodes: ['j1'], edges: ['ej'] } },
+    { id: 'c4', title: 'What was edited', text: 'Marking a patient as enrolled now also writes a line to the log. The rest of the path is as it was.', focus: { nodes: ['s3', 's4'] } },
+  ];
+  return m;
+}
 
 async function narrate(req: AgentRequest, steps: [string, string][]) {
   for (const [kind, text] of steps) {
@@ -34,7 +73,10 @@ const agent: Agent = async (req) => {
       ['read', 'Reading src/jobs/nightly.ts'],
     ]);
     // Asked what someone sees or goes through, the stand-in returns the journey: the same app as a user flow.
-    const journey = /journey|go(es)? through|user flow|\bsees?\b/i.test(req.prompt.slice(req.prompt.indexOf('## The question')).split('\n')[1] ?? '');
+    const asked = req.prompt.slice(req.prompt.indexOf('## The question')).split('\n')[1] ?? '';
+    // Asked what changed, it makes a change to the copy and returns the map of it.
+    if (/\bchanged?\b|\bdiff\b/i.test(asked)) return { output: changeMap(), sessionId: 'preview-maker', cost: 0 };
+    const journey = /journey|go(es)? through|user flow|\bsees?\b/i.test(asked);
     return { output: journey ? JOURNEY : MAP, sessionId: 'preview-maker', cost: 0 };
   }
   // Only the question itself (the line after "## Their question"), not the instructions around it.

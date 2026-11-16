@@ -112,7 +112,11 @@ can tie it to the code. Screenshots are saved under `.illuminate/screens/`.
    go struck through. Nothing is edited. After the change is built, reopen the map: illuminate checks the code and
    marks which proposed parts are now there. Ask what someone sees or goes through, and the map is drawn as a
    user flow instead: screens, actions and choices from left to right, with the code behind each one a click away.
-5. **Fix from the map.** Ask for a change and Claude proposes a fix, drawn as a green dashed arrow next to the exact diff.
+5. **See what a change did.** Ask "what did you just change?" or "what did the last commit do?" and the map shows
+   the code as it is now, with what is new in green, what is different in amber and what was deleted struck through
+   in red. illuminate works those out itself by comparing with a commit (the last one, unless you name another), and
+   a changed box shows its lines. A switch on the map shows the before, the after (each with the other side faded to a shadow), or both. It compares with a commit, so work you hadn't committed before the task counts too.
+6. **Fix from the map.** Ask for a change and Claude proposes a fix, drawn as a green dashed arrow next to the exact diff.
    Nothing changes until you approve. Then illuminate writes exactly that change (refusing if the files changed since),
    re-checks the map, and offers Undo.
 

@@ -175,8 +175,19 @@ anything Claude proposes is drawn as a proposal on top of it. It has to win on e
     reads like bad news; it should say the gap is closed.
   - No way to hide the proposal and see only the code as it is. Additions are laid out below existing boxes, so a
     proposed arrow can cross them.
-  - A "what changed" map drawn from `git diff` is deferred; git would be its source of truth.
-  - The 33-minute silent death of an `illuminate_listen` call seen on 2026-11-13 is still open.
+  - The 33-minute silent death of an `illuminate_listen` call: on 2026-11-15 two more calls were dropped after about
+    31 minutes, and the system sleep log showed the Mac asleep through the second. The 25-minute return runs on a timer
+    that doesn't count time asleep, and Claude Code counts by the clock, so a call can't survive sleep. Whether the
+    2026-11-13 one was also sleep wasn't checked. Nothing was changed for it.
+- **Change maps built 2026-11-16** (see `CLAUDE.md`, "Changes"). John wanted to ask "what did Claude just change" after
+  a big task. Decided: compare with a git commit (the last one by default), because it needs nothing installed
+  beforehand and nothing stored. Known limit, accepted for now: uncommitted work from before the task shows as changed
+  too, and sessions can't be told apart. The fix for that, if it turns out to matter, is a copy of each file taken
+  just before a session first edits it (a Claude Code hook); it would only change what "before" means. The first
+  real change map (of this feature) had every box coloured and no unchanged ones, so John couldn't tell before from
+  now. Since then: the prompt asks for the unchanged steps too (about a third of the boxes), the map has a key, and a
+  Before / After / Both switch fades the other side to a shadow (John's call, over hiding it: one graph that keeps its shape). Real Claude hasn't written a change map yet;
+  only the scripted preview and tests have.
 - **How to tell it's helpful:** Lucia, Felix and Dhruv on their own repos for a week. Did they open it a second time
   unprompted, and ask a follow-up on the map instead of in the terminal?
 

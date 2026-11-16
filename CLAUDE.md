@@ -18,6 +18,9 @@ artifact (link in both).
 - **A proposal is not a claim, and the map says which is which.** A box or arrow may carry `proposed` (add, change,
   remove). The checker computes where each stands from the repo (`pending` or `done`), the same way it computes every
   status; a proposed addition is the only thing on a map that cites no code, and it must connect to a box that exists.
+- **What changed is computed, not claimed.** On a map of a change (`since`), the checker compares the code with that
+  commit and marks what is new or different itself. The map only says which boxes and arrows were `removed`, since
+  those cite code that is no longer there, and the checker confirms each against the old version.
 - **Say what the check proves, and no more.** It proves every part is real code, not that the map is the whole story:
   the top bar says "Every part is in the code", and a gap shows the search behind it and how many files it covered.
 - **The map format is the one-way door.** Change `packages/core/src/format.ts` deliberately, with tests. Everything
@@ -132,6 +135,21 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   is being written (`settledProposals`) was misread: the maker sends it back and the explainer doesn't draw it. In an
   answer, new proposed boxes go in `add` and existing ones are marked through `propose`. A `then` arrow or a box with
   no `symbol` can't be detected as built and stays proposed. A sketch element may be `proposed`, and the checker drops that mark once the file has its text.
+- **Changes** (`since` and `removed` in `core/src/format.ts`, `core/src/base.ts`, `server/src/changes.ts`,
+  `CHANGE_RULES` in `prompts.ts`): asked what a change did, Claude draws the code as it is now and sets `since` to the
+  commit to compare with ("HEAD" for work not committed yet). The maker pins that to a full hash (`pinned` in
+  `maker.ts`), so the map shows the same change after a commit. `check()` reads the old version through git
+  (`createBaseReader`: same secret and path rules, nothing checked out) and puts `change` on each claim: a box that
+  names a function is `added` if the function wasn't there and `changed` if its signature or body hash differs (with
+  the lines, `lineDiff`); a box that names none goes by its cited lines; an arrow is `added` when the facts didn't
+  show it then, or a line that proves it is new. A `removed` box or arrow cites the code as it was, and is confirmed
+  only if it checks out against the old version and is gone now. The head start lists what differs from the last
+  commit, by file and function (`recentChanges`), which is how the CLI's Claude, with no shell, knows where to look.
+  The comparison is with a commit, so it can't tell who made a change: uncommitted work from before a task counts
+  too. The viewer draws a key on the map with a Before / After / Both switch (`ChangeKey` in `graph.tsx`): Both is
+  the code now with removed parts drawn in; Before and After draw what isn't in that version as a shadow (a faint dashed outline, class `ghost`), so no box moves and the map keeps its shape. Claude is
+  told to draw the unchanged steps the change plugs into, so the change reads against something.
+  `npm run preview` makes a change to its copy and maps it for a question with "changed" in it.
 - **Journeys** (`JOURNEY_RULES` in `prompts.ts`, `view: 'journey'` in the format, `layoutJourney` in `viewer/src/layout.ts`,
   `JourneyNode` in `graph.tsx`): asked what a person sees or goes through, Claude draws only screens, actions and
   choices (`kind`: `screen`, `action`, `choice`), with whatever runs behind a screen folded into one arrow. Every box
