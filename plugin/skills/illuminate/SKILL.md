@@ -36,7 +36,21 @@ call it again without mentioning it; if it says illuminate stopped listening, do
 illuminate", call `illuminate_listen`. Don't edit files while working on a request, and keep what you say in the terminal to a
 sentence or two: the map does the explaining. `illuminate_open` opens saved maps.
 
-**Otherwise**, run the CLI from the repo root (or pass `--repo`). It needs `ANTHROPIC_API_KEY`:
+**In Claude Code, when the plugin is installed but you have no `illuminate_map` tool**: illuminate's server didn't
+start. It runs on Node (20.19 or later, started with `npx`), so check that before anything else:
+
+1. Run `node --version` and `npx --version`.
+2. If Node is missing or older than 20.19, say so in a sentence and offer to install or update it. Do it only if the
+   person agrees. Use what their machine already has: the version manager they use (`nvm`, `fnm`, `volta`, `asdf`);
+   otherwise Homebrew on a Mac (`brew install node`) or `winget install OpenJS.NodeJS.LTS` on Windows; otherwise install
+   `fnm` or `nvm` into their home folder. Avoid anything that asks for an administrator password: you can't type one.
+   Don't remove or replace a Node version their other tools depend on; add a newer one beside it and make it the default.
+3. Check `node --version` again in a new shell. Then tell them to quit and reopen Claude Code (it only sees the new Node
+   after a restart) and ask their question again.
+4. If Node was already new enough, the cause is something else. Don't install anything: tell them to run `/mcp`, which
+   shows the illuminate server's error and can reconnect it.
+
+**Outside Claude Code**, run the CLI from the repo root (or pass `--repo`). It needs `ANTHROPIC_API_KEY`:
 
 ```bash
 illume "What happens when a patient converts?" --repo "$(git rev-parse --show-toplevel)"
