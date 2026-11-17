@@ -1,16 +1,14 @@
 # illuminate
 
-Ask how your code works and get a map you can point at. Claude explores the repo and drafts the answer as a graph of
-areas, steps and labeled arrows. A plain program checks every box and arrow against the real code before you see it.
-Then you can take a walkthrough, select any part and ask about it, and fix a missing connection right from the map.
+Ask Claude Code how your code works and get a map you can point at. Claude reads the repo and draws the answer as
+boxes and arrows in your browser. A plain program then checks every box and arrow against the real code before you see
+it, so the map can't show something that isn't there.
+
+![A map of what happens when a patient converts, with the missing connection marked in red](docs/images/arch.png)
 
 Design: [Codemap v1 Design](https://claude.ai/artifact/55L8tokprGe61qtfpDXJ5h).
 
-## Use it in Claude Code (no API key)
-
-illuminate runs as an MCP server in Claude Code: your own Claude Code session does the reading and writing on your own
-sign-in, and illuminate checks every claim and draws the map. Questions you ask on the map go to that same session,
-and the answers come back to the map.
+## Install
 
 In Claude Code (2.1.275 or later), in any repo:
 
@@ -18,25 +16,88 @@ In Claude Code (2.1.275 or later), in any repo:
 /plugin install illuminate --marketplace johnz4021/illuminate
 ```
 
-That installs the illuminate MCP server (`npx -y @johnz4021/illuminate`, Node 20.19 or later) and the `/illuminate`
-skill. If Node is missing or too old, ask for a map anyway: the skill has Claude check, offer to install or
-update Node, or tell you to update Claude Code (`claude update`), and then to restart it. Without the plugin: `claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate channel`.
+Then restart Claude Code. That's all: illuminate uses your own Claude Code session and sign-in, so there is no API key
+to set up. It needs Node 20.19 or later. If Node is missing or too old, ask for a map anyway: Claude checks, offers to
+install or update it, and tells you what to restart.
 
-From a checkout of this repo instead (for working on illuminate):
+## What you can ask
+
+Ask in plain words, or start with `/illuminate`. A map opens in your browser after about a minute. The screenshots
+below are real maps of a small demo app (a clinic's patient system).
+
+### 1. How something works
+
+> What happens when a patient converts? Does the welcome email go out?
+
+Claude follows the flow from where it starts to where it ends, across files. If something on the way should connect
+and doesn't, the map shows it as a red dashed arrow, with the search that proves nothing is there. That is the map at
+the top of this page: the app announces the conversion, and nothing is listening.
+
+### 2. What a change did
+
+> What did you just change?
+
+The map shows the code as it is now, compared with a commit (the last one, unless you name another). What is new is
+green, what is different is amber, and what was deleted is struck through in red. illuminate works those out itself
+from the two versions. The switch at the top left shows the code before, after, or both.
+
+![A map of a change: a new listener in green, joined to the steps that were already there](docs/images/change.png)
+
+Good for reading what an agent did after a long task. It compares with a commit, so work you hadn't committed before
+the task counts as changed too.
+
+### 3. A user journey
+
+> Show me the user journey: what does staff go through to convert a patient?
+
+Asked what a person sees or does, Claude draws screens, actions and choices from left to right, with no code on the
+boxes. Each screen can show a wireframe of its page, drawn from the code, with the part the step is about marked.
+Nothing has to be running.
+
+![A user journey, with a wireframe of the patient page in the walkthrough](docs/images/journey.png)
+
+### 4. A change before it's made
+
+> How would we send the welcome email right away when a patient converts? Show me a plan.
+
+Claude draws the code as it is, checked, with the proposal on top in violet: new boxes and arrows dashed, and what
+would change marked. Nothing is edited. After the change is built, reopen the map and illuminate marks which proposed
+parts are now in the code.
+
+![A proposal drawn in violet on top of the code as it is](docs/images/plan.png)
+
+## On the map
+
+- **Take the walkthrough.** A few stops, starting with the answer to your question.
+- **Click any box or arrow** to see what it does and the code behind it.
+- **Ask a follow-up** in the box at the bottom, or select something first and ask about that. The answer lights up the
+  part of the map it's about.
+- **Ask for a fix.** Claude proposes one, drawn on the map next to the exact change. Nothing is edited until you
+  approve it.
+
+The top bar says whether the map still matches the code ("Every part is in the code"). The check proves each part is
+real; it doesn't prove the map covers everything.
+
+## How it runs in Claude Code
+
+illuminate runs as an MCP server in Claude Code: your session does the reading and writing, and illuminate checks every
+claim and draws the map. Questions you ask on the map go to that same session, and the answers come back to the map.
+
+Without the plugin: `claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate channel`. From a checkout of
+this repo instead (for working on illuminate):
 
 ```
 npm i && npm run build
 claude mcp add --scope user illuminate -- node "$PWD/packages/server/bin/illuminate.mjs" channel
 ```
 
-Ask something like "how does sign-up work? Draw me a map." Claude calls `illuminate_map`, the map opens in your
-browser, and Claude keeps working until it has passed the check. Then Claude keeps one `illuminate_listen` call open:
-after two minutes Claude Code moves it to the background and gives you your terminal back, and when you ask on the map
-it wakes the session with your question. The session has to stay open for that. Every 25 minutes or so the call
-returns and Claude quietly starts another (Claude Code drops a call that has been quiet for 30 minutes); after about
-two hours with no questions, illuminate stops listening. If a question on the map says Claude
-Code isn't listening, tell Claude "listen to illuminate". To skip approving each illuminate tool call, allow its
-tools when Claude Code asks (`mcp__plugin_illuminate_illuminate__*` from the plugin, `mcp__illuminate__*` otherwise).
+Once a map is ready, Claude keeps one `illuminate_listen` call open: after two minutes Claude Code moves it to the
+background and gives you your terminal back, and when you ask on the map it wakes the session with your question. The
+session has to stay open for that. Every 25 minutes or so the call returns and Claude quietly starts another (Claude
+Code drops a call that has been quiet for 30 minutes); after about two hours with no questions, illuminate stops
+listening. If a question on the map says Claude Code isn't listening, tell Claude "listen to illuminate". To skip
+approving each illuminate tool call, allow its tools when Claude Code asks (`mcp__plugin_illuminate_illuminate__*` from
+the plugin, `mcp__illuminate__*` otherwise).
 
 Moving long tool calls to the background is on by default; if you've turned it off (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0`),
 listening holds your terminal until you ask on the map. Starting Claude Code with
@@ -100,6 +161,8 @@ can tie it to the code. Screenshots are saved under `.illuminate/screens/`.
 
 ## How it works
 
+What happens behind the four kinds of map above:
+
 1. **Make a map.** A deterministic scan gives Claude a head start (entry points, routes, which requests hit which
    routes, which tables are written). Claude explores with Read/Grep/Glob only and returns the map in a fixed format.
 2. **Check every claim.** `check()` re-reads each cited line, verifies calls, requests and imports against code facts,
@@ -110,16 +173,7 @@ can tie it to the code. Screenshots are saved under `.illuminate/screens/`.
    anything and ask, as a conversation: replies are short and lead with the answer, and the map does the explaining (each reply
    lights up what it's about). Claude explores further when the map isn't enough; what it finds is drawn only if it
    passes the checker.
-4. **See a change before it's made.** Ask how something would change ("how would we send this right away?") and the
-   map shows the code as it is, checked, with the proposal on top in violet: new boxes and arrows dashed, what would
-   go struck through. Nothing is edited. After the change is built, reopen the map: illuminate checks the code and
-   marks which proposed parts are now there. Ask what someone sees or goes through, and the map is drawn as a
-   user flow instead: screens, actions and choices from left to right, with the code behind each one a click away.
-5. **See what a change did.** Ask "what did you just change?" or "what did the last commit do?" and the map shows
-   the code as it is now, with what is new in green, what is different in amber and what was deleted struck through
-   in red. illuminate works those out itself by comparing with a commit (the last one, unless you name another), and
-   a changed box shows its lines. A switch on the map shows the before, the after (each with the other side faded to a shadow), or both. It compares with a commit, so work you hadn't committed before the task counts too.
-6. **Fix from the map.** Ask for a change and Claude proposes a fix, drawn as a green dashed arrow next to the exact diff.
+4. **Fix from the map.** Ask for a change and Claude proposes a fix, drawn as a green dashed arrow next to the exact diff.
    Nothing changes until you approve. Then illuminate writes exactly that change (refusing if the files changed since),
    re-checks the map, and offers Undo.
 
