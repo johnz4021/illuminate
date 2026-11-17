@@ -15,7 +15,7 @@ and the answers come back to the map.
 In Claude Code (2.1.275 or later), in any repo:
 
 ```
-/plugin install illuminate --marketplace johnz4021/codemap
+/plugin install illuminate --marketplace johnz4021/illuminate
 ```
 
 That installs the illuminate MCP server (`npx -y @johnz4021/illuminate`, Node 20.19 or later) and the `/illuminate`

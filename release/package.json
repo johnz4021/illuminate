@@ -6,9 +6,9 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/johnz4021/codemap.git"
+    "url": "git+https://github.com/johnz4021/illuminate.git"
   },
-  "homepage": "https://github.com/johnz4021/codemap#readme",
+  "homepage": "https://github.com/johnz4021/illuminate#readme",
   "keywords": [
     "claude-code",
     "mcp",
