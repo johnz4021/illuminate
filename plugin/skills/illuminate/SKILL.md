@@ -47,8 +47,11 @@ start. It runs on Node (20.19 or later, started with `npx`), so check that befor
    Don't remove or replace a Node version their other tools depend on; add a newer one beside it and make it the default.
 3. Check `node --version` again in a new shell. Then tell them to quit and reopen Claude Code (it only sees the new Node
    after a restart) and ask their question again.
-4. If Node was already new enough, the cause is something else. Don't install anything: tell them to run `/mcp`, which
-   shows the illuminate server's error and can reconnect it.
+4. If Node was already new enough, check Claude Code itself: run `claude --version`. illuminate needs 2.1.275 or later.
+   If it is older, tell them to run `claude update` in a terminal, then quit and reopen Claude Code and ask again. Don't
+   run the update yourself: it replaces the program this session is running in.
+5. If both are new enough, the cause is something else. Don't install anything: tell them to run `/mcp`, which shows
+   the illuminate server's error and can reconnect it.
 
 **Outside Claude Code**, run the CLI from the repo root (or pass `--repo`). It needs `ANTHROPIC_API_KEY`:
 

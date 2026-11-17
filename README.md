@@ -20,7 +20,7 @@ In Claude Code (2.1.275 or later), in any repo:
 
 That installs the illuminate MCP server (`npx -y @johnz4021/illuminate`, Node 20.19 or later) and the `/illuminate`
 skill. If Node is missing or too old, ask for a map anyway: the skill has Claude check, offer to install or
-update Node, and tell you to restart Claude Code. Without the plugin: `claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate channel`.
+update Node, or tell you to update Claude Code (`claude update`), and then to restart it. Without the plugin: `claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate channel`.
 
 From a checkout of this repo instead (for working on illuminate):
 
