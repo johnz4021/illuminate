@@ -1,13 +1,40 @@
 // Stopping illuminate from the page, and what a tab shows once it has stopped (by the button, Ctrl+C, or on its own).
+import { useEffect, useState } from 'react';
 import { api } from './api';
 
+// Stopping ends illuminate for every tab, and Undo for applied fixes with it, so the button asks first. The question
+// goes away by itself if it isn't answered, or on Escape.
+const ASK_FOR_MS = 8000;
+
 export function StopButton({ busy, onStopped, onError }: { busy: boolean; onStopped: () => void; onError: (message: string) => void }) {
+  const [asking, setAsking] = useState(false);
+
+  useEffect(() => {
+    if (!asking) return;
+    const timer = setTimeout(() => setAsking(false), ASK_FOR_MS);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAsking(false); };
+    window.addEventListener('keydown', onKey);
+    return () => { clearTimeout(timer); window.removeEventListener('keydown', onKey); };
+  }, [asking]);
+
+  if (asking && !busy) {
+    return (
+      <span className="stop-ask" role="group" aria-label="Stop illuminate?">
+        <span className="stop-ask-text">Stop illuminate? Maps stay saved.</span>
+        <button className="pill-btn stop-yes" autoFocus onClick={() => { setAsking(false); api.stop().then(onStopped, (e: Error) => onError(e.message)); }}>
+          Stop
+        </button>
+        <button className="pill-btn" onClick={() => setAsking(false)}>Keep running</button>
+      </span>
+    );
+  }
+
   return (
     <button
       className="pill-btn"
       disabled={busy}
       title={busy ? 'Claude is still working' : 'Maps stay saved. Undo for applied fixes ends.'}
-      onClick={() => api.stop().then(onStopped, (e: Error) => onError(e.message))}
+      onClick={() => setAsking(true)}
     >
       Stop illuminate
     </button>

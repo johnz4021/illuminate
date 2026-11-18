@@ -189,14 +189,23 @@ body.resizing { cursor: col-resize; user-select: none; }
 .dock-start .muted { font-weight: 400; }
 .dock-start:hover { border-color: var(--line-strong); }
 .dock-ask { width: 420px; }
-/* Reopening the conversation: a button in the map's top-left corner while it's closed. */
-.history-corner { position: absolute; top: 16px; left: 16px; z-index: 6; }
-.history-btn { gap: 7px; box-shadow: var(--shadow); }
+/* Reopening the conversation: a button in the map's bottom-right corner while it's closed, on the side the panel
+   opens from. Where the map area is too narrow to sit beside the dock, it sits just above it. */
+.history-corner { position: absolute; bottom: 18px; right: 16px; z-index: 6; }
+.history-btn { gap: 7px; box-shadow: var(--shadow); height: 40px; padding: 0 14px; font-weight: 600; }
+.history-btn .history-arrow { color: var(--muted); font-weight: 400; }
+/* Stopping asks first. */
+.stop-ask { display: inline-flex; align-items: center; gap: 8px; }
+.stop-ask-text { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.stop-yes { border-color: #c2410c; color: #c2410c; }
 /* When the map area is narrow (a small window, or the panel is open), the question box gets its own row. */
 @container canvas (max-width: 900px) {
   .dock:has(.dock-ask) { flex-wrap: wrap; width: min(560px, calc(100% - 32px)); }
   .dock:has(.dock-ask) .dock-part { flex: 1 1 auto; }
   .dock-ask { order: 3; width: 100%; flex-basis: 100%; border-left: 0; border-top: 1px solid var(--line); }
+}
+@container canvas (max-width: 1150px) {
+  .history-corner { bottom: 112px; }
 }
 
 /* ---------- walkthrough bubble ---------- */
@@ -205,6 +214,31 @@ body.resizing { cursor: col-resize; user-select: none; }
 .tour-head .dots { margin-left: auto; }
 @container canvas (max-width: 1340px) { .card.tour-bubble { bottom: 112px; } }
 
+/* ---------- what's selected: a bubble beside the box (bubble.tsx places it) ---------- */
+.box-bubble { position: absolute; z-index: 7; width: 380px; max-width: calc(100% - 24px); }
+.box-bubble-wide { width: 600px; }
+.box-bubble > .card-selected { max-height: min(var(--bubble-cap, 45vh), var(--bubble-max, 45vh)); overflow-y: auto; box-shadow: 0 0 0 3px var(--lamp-glow), var(--shadow); }
+.box-bubble > .card-selected.card-dead { box-shadow: var(--shadow); }
+.box-bubble .card-selected > .eyebrow, .box-bubble .card-selected > .card-title { padding-right: 28px; }
+/* The pointer: a small diamond on the side facing the box, behind the card so only its tip shows. */
+.box-bubble-pointer { position: absolute; width: 12px; height: 12px; margin-top: -6px; background: var(--surface); border: 1px solid var(--lamp); transform: rotate(45deg); z-index: -1; }
+.box-bubble-right .box-bubble-pointer { left: -6px; }
+.box-bubble-left .box-bubble-pointer { right: -6px; }
+/* The resize grip, on the bottom corner away from the box. */
+.box-bubble-grip { position: absolute; bottom: 3px; width: 16px; height: 16px; z-index: 1; touch-action: none; opacity: 0.55;
+  background: linear-gradient(135deg, transparent 0 46%, var(--muted) 46% 54%, transparent 54% 66%, var(--muted) 66% 74%, transparent 74%); }
+.box-bubble-grip:hover { opacity: 1; }
+.box-bubble-right .box-bubble-grip { right: 3px; cursor: nwse-resize; }
+.box-bubble-left .box-bubble-grip { left: 3px; cursor: nesw-resize; transform: scaleX(-1); }
+body.resizing-bubble { cursor: nwse-resize; user-select: none; }
+/* A changed box's diff, behind "Show what changed": long lines wrap in the bubble rather than run off its edge. */
+.change-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.change-head > .link-btn, .code-toggle > .link-btn { white-space: nowrap; }
+.diff-size { font-family: var(--mono); font-size: 11.5px; }
+.diff-size .add { color: var(--ok); }
+.diff-size .del { color: var(--dead); }
+.box-bubble .diff { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* the question box, inside the dock */
 .composer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 3px 3px 3px 11px; background: var(--surface); }
 .composer:focus-within { border-color: var(--line-strong); }
@@ -212,6 +246,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .composer textarea:focus-visible { outline: none; }
 .sel-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--ink); background: var(--lamp-soft); border: 1px solid var(--lamp); border-radius: 999px; padding: 2px 4px 2px 9px; margin: 3px 0; }
 .sel-text { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-chip.sel-step { background: var(--surface); border-color: var(--line-strong); }
 .sel-chip.sel-absences { color: var(--dead); background: var(--dead-soft); border-color: var(--dead); }
 .sel-chip button { border: 0; background: transparent; cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; color: inherit; }
 .send { width: 30px; height: 30px; flex: none; border-radius: 50%; border: 0; background: var(--lamp); color: #23292a; font-size: 15px; font-weight: 700; cursor: pointer; }
@@ -226,11 +261,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .panel-head .panel-title + .card-close { margin-left: auto; }
 .panel-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; }
 .panel-foot { display: grid; gap: 10px; padding: 12px 16px 14px; border-top: 1px solid var(--line); background: var(--paper); }
-.panel-foot .card-selected { position: relative; max-height: 46vh; overflow-y: auto; }
-.selected-line { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; border: 1px solid var(--lamp); border-radius: 10px; background: var(--surface); }
-.selected-line-dead { border-color: color-mix(in srgb, var(--dead) 55%, var(--line)); }
-.selected-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.selected-hide { position: absolute; top: 12px; right: 14px; }
 .thread-empty { margin: 0; }
 
 /* A turn: your question as a bubble on the right, then what came back. */

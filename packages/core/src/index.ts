@@ -26,7 +26,8 @@ export {
 } from './format';
 export { addToMap, freshId, mapIds, patchMap, removeAbsences, removeFromMap, slugify, type MapAdditions, type MapPatch } from './edit';
 export { commitInfo, createBaseReader, lineDiff, resolveCommit, type BaseReader } from './base';
-export { check, settledProposals, type AbsenceCheck, type ChangeCheck, type SinceCheck, type CheckOptions, type CheckReport, type ClaimCheck, type EvidenceCheck, type Proof, type ProposalCheck, type Status, type TourCheck } from './check';
+export { DEFAULT_LINE_WINDOW, check, checkEvidence, settledProposals, sidesOf, type AbsenceCheck, type ChangeCheck, type SinceCheck, type CheckOptions, type CheckReport, type ClaimCheck, type EvidenceCheck, type Proof, type ProposalCheck, type Status, type TourCheck } from './check';
+export { checkNotes, codeForNotes, codeOf, type CodeBlock, type CodeNote, type CodeView } from './code';
 export { MAX_FILE_BYTES, SECRET_GLOBS, createRepoReader, isSecretPath, type ReadResult, type RepoReader } from './repo';
 export {
   Capture,

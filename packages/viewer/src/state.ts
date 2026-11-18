@@ -33,6 +33,8 @@ export type State = {
   selection: Sel;
   /** Walkthrough stop, while touring. */
   tour: number | null;
+  /** The conversation opened during the walkthrough: the panel shows, and the map stays on the walkthrough's stop. */
+  peek: boolean;
   views: View[];
   viewIndex: number;
   fixes: Record<string, FixState>;
@@ -52,6 +54,8 @@ export type Action =
   | { type: 'selectMany'; selection: Sel }
   | { type: 'clearSelection' }
   | { type: 'tour'; stop: number | null }
+  /** Open or close the conversation without leaving the walkthrough. */
+  | { type: 'peek'; open: boolean }
   | { type: 'focus'; id: string }
   | { type: 'back' }
   | { type: 'forward' }
@@ -75,6 +79,7 @@ export const initialState = (mapId: string): State => ({
   shown: null,
   selection: emptySel(),
   tour: null,
+  peek: false,
   views: [],
   viewIndex: -1,
   fixes: {},
@@ -199,7 +204,7 @@ export function reducer(s: State, a: Action): State {
       }
       if (e.type === 'answer') {
         const answers = [...s.answers, e.answer];
-        const next: State = { ...s, answers, shown: e.answer.id, tour: null, fresh: e.answer.added, fixes: fixesFrom([e.answer], s.fixes, undefined) };
+        const next: State = { ...s, answers, shown: e.answer.id, tour: null, peek: false, fresh: e.answer.added, fixes: fixesFrom([e.answer], s.fixes, undefined) };
         return pushView(next, answerView(s.map, e.answer));
       }
       if (e.type === 'answerUpdate') return { ...s, answers: s.answers.map((x) => (x.id === e.answer.id ? e.answer : x)) };
@@ -230,15 +235,22 @@ export function reducer(s: State, a: Action): State {
     case 'clearSelection':
       return { ...s, selection: emptySel() };
     case 'tour': {
-      if (a.stop === null || !s.map) return { ...s, tour: null };
+      if (a.stop === null || !s.map) return { ...s, tour: null, peek: false };
       const stop = Math.max(0, Math.min(a.stop, s.map.tour.length - 1));
       return pushView({ ...s, tour: stop, selection: emptySel() }, stopView(s.map, stop));
+    }
+    case 'peek': {
+      // Only the panel changes: the latest reply is the one it opens at, but the map isn't moved to it (that's what
+      // "Show on the map" is for, and it ends the walkthrough).
+      if (!a.open) return { ...s, peek: false };
+      const last = s.answers[s.answers.length - 1];
+      return last ? { ...s, peek: true, shown: s.shown ?? last.id } : s;
     }
     case 'focus': {
       if (!s.map) return s;
       const kind: keyof Sel | null = s.map.nodes.some((n) => n.id === a.id) ? 'nodes' : s.map.edges.some((e) => e.id === a.id) ? 'edges' : s.map.absences.some((x) => x.id === a.id) ? 'absences' : null;
       if (!kind) return s;
-      return pushView({ ...s, tour: null, selection: { ...emptySel(), [kind]: [a.id] } }, { focus: a.id, highlight: [a.id] });
+      return pushView({ ...s, tour: null, peek: false, selection: { ...emptySel(), [kind]: [a.id] } }, { focus: a.id, highlight: [a.id] });
     }
     case 'back':
       return s.viewIndex > 0 ? { ...s, viewIndex: s.viewIndex - 1 } : s.viewIndex === 0 ? { ...s, viewIndex: -1 } : s;
@@ -247,10 +259,10 @@ export function reducer(s: State, a: Action): State {
     case 'show': {
       // Going back to an earlier reply lights up what it was about again.
       const answer = s.answers.find((x) => x.id === a.answerId);
-      return pushView({ ...s, shown: a.answerId, tour: null }, answer ? answerView(s.map, answer) : null);
+      return pushView({ ...s, shown: a.answerId, tour: null, peek: false }, answer ? answerView(s.map, answer) : null);
     }
     case 'overview':
-      return pushView({ ...s, shown: null, tour: null, selection: emptySel(), fresh: [] }, { focus: null, highlight: [] });
+      return pushView({ ...s, shown: null, tour: null, peek: false, selection: emptySel(), fresh: [] }, { focus: null, highlight: [] });
     case 'layer':
     case 'allLayers': {
       const ids = a.type === 'layer' ? [a.answerId] : layersOf(s).map((l) => l.answerId);

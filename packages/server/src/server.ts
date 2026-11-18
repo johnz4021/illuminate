@@ -8,7 +8,7 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { capturePaths, check, readCapture, repoImage, type CheckReport, type CodeMap } from '@illuminate/core';
+import { capturePaths, check, codeForNotes, codeOf, readCapture, repoImage, type CheckReport, type CodeMap } from '@illuminate/core';
 import { sdkAgent, type Agent, type Progress } from './agent';
 import { answer, type Answer, type Selection } from './explainer';
 import { applyFix, connectAfterFix, undoFix, type AppliedFix, type FixProposal } from './fixes';
@@ -343,6 +343,18 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
         throw new HttpError(404, 'No such map.');
       }
       return json(res, 200, { ...stored, report: check(stored.map, root), job, failure: null, answers: stored.answers ?? [], fixes: fixStates(stored) });
+    }
+    // The code behind a box or arrow, or behind the notes on an answer: read and checked now, never stored.
+    if (mapId && parts[2] === 'code' && parts.length === 3 && m === 'GET') {
+      const stored = store.get(mapId);
+      const view = stored && codeOf(stored.map, root, url.searchParams.get('item') ?? '', url.searchParams.get('when') === 'before' ? 'before' : 'now');
+      if (!view) throw new HttpError(404, 'No code to show for that.');
+      return json(res, 200, { ...view, root: root });
+    }
+    if (mapId && parts[2] === 'answers' && parts[3] && parts[4] === 'code' && m === 'GET') {
+      const notes = store.get(mapId)?.answers?.find((a) => a.id === parts[3])?.notes;
+      if (!notes?.length) throw new HttpError(404, 'No code to show for that.');
+      return json(res, 200, { ...codeForNotes(root, notes), root: root });
     }
     if (mapId && parts[2] === 'answers' && parts[3] && parts[4] === 'offer' && m === 'POST') {
       const body = await readBody(req);

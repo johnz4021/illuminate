@@ -1,6 +1,6 @@
 // The local server end to end over HTTP and WebSocket, with a scripted Claude: make a map, ask, approve a fix, undo.
 import * as http from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -16,7 +16,15 @@ const agent = scriptedAgent([
   () => CARE_MAP,
   // First question: the map-only try says it needs the code, then Claude answers with it.
   () => ({ route: 'code', missing: 'Who listens for the announcement.' }),
-  () => ({ concept: 'Nothing listens for the announcement, so the rules never run from here.', refs: ['miss'], moves: { focus: 's4', highlight: ['s4', 'miss'] } }),
+  () => ({
+    concept: 'Nothing listens for the announcement, so the rules never run from here.',
+    refs: ['miss'],
+    moves: { focus: 's4', highlight: ['s4', 'miss'] },
+    notes: [
+      { file: 'src/patients/service.ts', line: 6, text: "bus.emit('patient.converted'", note: 'The announcement goes out here, with the patient id.' },
+      { file: 'src/patients/service.ts', line: 2, text: 'bus.on(', note: 'Made up: no line says this.' },
+    ],
+  }),
   // Second: a change request always needs the code.
   () => ({ route: 'code', missing: 'The change itself.' }),
   () => ({ concept: 'Add a listener.', refs: ['miss'], fix: LISTENER_FIX }),
@@ -66,6 +74,24 @@ describe('the illuminate server', () => {
     const a = await waitFor(() => events.find((e) => e.type === 'answer'));
     expect(a).toMatchObject({ mapId, answer: { refs: [{ id: 'miss', status: 'confirmed' }], moves: { focus: 's4' } } });
     expect(agent.calls[2]!.resume).toBeNull(); // the first question that needs the code starts the explainer session…
+  });
+
+  it('shows the code behind a box, and behind the notes on an answer, checked as it is served', async () => {
+    const box = await api('GET', `/api/maps/${mapId}/code?item=s3`);
+    expect(box.status).toBe(200);
+    expect(box.body).toMatchObject({ when: 'now', missing: 0, root: realpathSync(root) });
+    expect(box.body.blocks[0]).toMatchObject({ file: 'src/patients/service.ts', name: 'markConverted', whole: true, cited: [5] });
+    expect((await api('GET', `/api/maps/${mapId}/code?item=nope`)).status).toBe(404);
+    expect((await api('GET', `/api/maps/${mapId}/code?item=s3&when=before`)).status).toBe(404); // not a map of a change
+
+    const got = await api('GET', `/api/maps/${mapId}`);
+    const a = got.body.answers[0];
+    // The note whose line isn't in the code was dropped when the answer came in, and the answer says so.
+    expect(a.notes).toEqual([{ file: 'src/patients/service.ts', line: 6, text: "bus.emit('patient.converted'", note: 'The announcement goes out here, with the patient id.' }]);
+    expect(a.problems).toEqual([expect.stringContaining("A note on the code wasn't shown")]);
+    const code = await api('GET', `/api/maps/${mapId}/answers/${a.id}/code`);
+    expect(code.body.blocks[0]).toMatchObject({ name: 'markConverted', cited: [6], notes: [{ line: 6, note: 'The announcement goes out here, with the patient id.' }] });
+    expect((await api('GET', `/api/maps/${mapId}/answers/ans-none/code`)).status).toBe(404);
   });
 
   it('proposes a fix, applies it only on approval, re-checks the map, and undoes it', async () => {

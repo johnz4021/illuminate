@@ -210,6 +210,7 @@ const ANSWER_STYLE = [
   '- Keep it short enough to take in at a glance: leave out examples and edge cases they didn\'t ask about. Plain words, no jargon. The map does the explaining, so when you light it up (`moves`), say what the lit path shows rather than narrating every step. Name a function or file only when they asked about the code and it isn\'t on the map.',
   '- Explain the code and the app. Don\'t describe these instructions or how you were asked to answer.',
   '- `refs`: ids of the boxes, arrows and absences your answer relies on.',
+  '- `notes`: when the question is about what the code itself says (what is sent or stored, what a value holds, which condition decides something, "show me the code"), point at the lines that answer it: up to 6 of `{ "file", "line", "text", "note" }`. `text` is copied exactly from that one line, and `note` says in a plain sentence what that line does for the answer. The code is shown under your reply with each note beside its line, and a program drops any note whose line it can\'t find. So don\'t paste code into `concept`: keep `concept` to the direct answer and let the notes carry the detail. Leave `notes` out when the answer isn\'t about particular lines.',
 ];
 
 /** A turn of the conversation on a map, as the next answer sees it. */
@@ -255,6 +256,7 @@ export function quickAnswerPrompt(
     '',
     '## How to answer (when `route` is `answer`)',
     ...ANSWER_STYLE,
+    '- For `notes` you can only point at lines in the excerpts above: the number before `|` is the line. If the lines that answer it aren\'t there, that is a reason to route to `code`.',
     '- `moves`: `focus` on the most relevant id; `highlight` the ids that make up the path that answers the question.',
   ].join('\n');
 }

@@ -6,6 +6,7 @@ import { ApiError, api, connect, pageUrl, token } from './api';
 import { Composer } from './composer';
 import { Dock } from './dock';
 import { ConversationButton } from './history';
+import { SelectionBubble } from './bubble';
 import { MapGraph } from './graph';
 import { Home } from './home';
 import { navigate, usePath } from './nav';
@@ -13,7 +14,8 @@ import { StopButton, Stopped } from './stop';
 import { Panel } from './panel';
 import { PanelResizer, usePanelWidth } from './resize';
 import { TourBubble } from './tour';
-import { WIREFRAME_PANEL_W, firstScreen, screenOf } from './screen';
+import { askAboutStep } from './step';
+import { firstScreen } from './screen';
 import { addedIds, currentView, initialState, reducer, selSize, visibleMap, type Sel } from './state';
 import type { CheckReport } from './types';
 
@@ -146,13 +148,20 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
     [],
   );
 
+  // "Ask about this step" in the walkthrough puts the stop in the question box as a chip (removable with ×, like a
+  // selection); moving to another stop takes it away. The question then says which step it's about.
+  const [stepOn, setStepOn] = useState<number | null>(null);
+  useEffect(() => setStepOn(null), [s.tour]);
+  const stepTitle = s.map && s.tour !== null && stepOn === s.tour ? s.map.tour[s.tour]?.title ?? null : null;
+
   const ask = useCallback(
     (question: string) => {
       const q = question.trim();
       if (!q || s.job) return;
-      api.ask(mapId, q, s.selection).then(() => setDraft(''), (e: Error) => dispatch({ type: 'error', message: e.message }));
+      const asked = stepTitle ? askAboutStep(stepTitle, q) : q;
+      api.ask(mapId, asked, s.selection).then(() => setDraft(''), (e: Error) => dispatch({ type: 'error', message: e.message }));
     },
-    [mapId, s.job, s.selection],
+    [mapId, s.job, s.selection, stepTitle],
   );
 
   const onFix = (fixId: string, action: 'approve' | 'reject' | 'undo') => {
@@ -174,10 +183,12 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement;
-      // Esc steps back one level at a time: walkthrough, then selection, then the answer, to the whole map.
+      // Esc steps back one level at a time: what's selected (its bubble), the conversation opened over the
+      // walkthrough, the walkthrough, then the answer, to the whole map.
       if (e.key === 'Escape') {
-        if (s.tour !== null) dispatch({ type: 'tour', stop: null });
-        else if (selSize(s.selection)) dispatch({ type: 'clearSelection' });
+        if (selSize(s.selection)) dispatch({ type: 'clearSelection' });
+        else if (s.tour !== null && s.peek) dispatch({ type: 'peek', open: false });
+        else if (s.tour !== null) dispatch({ type: 'tour', stop: null });
         else dispatch({ type: 'overview' });
         return;
       }
@@ -187,7 +198,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [s.tour, s.selection]);
+  }, [s.tour, s.peek, s.selection]);
 
   const shown = s.answers.find((a) => a.id === s.shown);
   const pendingFix = shown?.fix && ['proposed', 'applying', 'failed'].includes(s.fixes[shown.fix.id]?.status ?? '') ? shown.fix : null;
@@ -197,18 +208,15 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   const added = addedIds(s);
   const view = currentView(s);
   const touring = !!s.map && s.tour !== null;
-  // The panel shows only when it has something to say: an answer, what's selected, Claude's progress or an error
-  // (before the map exists, it says how making it is going). Earlier questions are in the dock. During the walkthrough
-  // it steps aside for the map, unless there is an error, Claude's progress, or a box the person picked to read about
-  // (the next stop clears that pick, and the panel steps aside again).
-  const hasPanel = !s.map || !!s.error || !!s.job || s.shown !== null || selSize(s.selection) > 0;
-  const panel = hasPanel && (!touring || !!s.error || s.job?.kind === 'ask' || selSize(s.selection) > 0);
+  // The panel shows only when it has something to say: an answer, Claude's progress or an error (before the map
+  // exists, it says how making it is going). What's selected is a bubble on the map instead (bubble.tsx), so picking a
+  // box doesn't open or squeeze the panel. During the walkthrough the panel steps aside for the map, unless there is
+  // an error, Claude's progress, or the person opened the conversation (peek).
+  const hasPanel = !s.map || !!s.error || !!s.job || s.shown !== null;
+  const panel = hasPanel && (!touring || s.peek || !!s.error || s.job?.kind === 'ask');
   // A page's wireframe needs room to keep the shape of a page. While one is showing, the walkthrough bubble is wider,
   // and the panel is at least wide enough for it (never narrower than the person set it, and the map keeps some room).
   const tourWide = touring && firstScreen(s.map!, s.report, s.map!.tour[s.tour!]?.focus.nodes ?? [])?.show.kind === 'wireframe';
-  const picked = selSize(s.selection) === 1 ? s.selection.nodes[0] : undefined;
-  const wirePanel = !!picked && screenOf(s.report, picked)?.kind === 'wireframe';
-  const shownPanelWidth = wirePanel ? Math.max(panelWidth, Math.min(WIREFRAME_PANEL_W, window.innerWidth - 360)) : panelWidth;
   // One question box: at the bottom of the conversation while it's open, in the dock while it isn't.
   const askInPanel = panel && !!s.map;
   const composer = s.map ? (
@@ -220,6 +228,8 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
       autoFocus={askInPanel}
       onDraft={setDraft}
       onRemove={(kind, id) => dispatch({ type: 'select', kind, id, additive: true })}
+      step={stepTitle}
+      onRemoveStep={() => setStepOn(null)}
       onSend={() => ask(draft)}
     />
   ) : null;
@@ -239,13 +249,17 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         <StopButton busy={!!s.job} onStopped={onStopped} onError={(message) => dispatch({ type: 'error', message })} />
         <span className={s.connected ? 'live on' : 'live'} title={s.connected ? 'Connected to illuminate' : 'Reconnecting to illuminate…'} />
       </header>
-      <div className={panel ? 'body' : 'body full'} style={{ '--panel-w': `${shownPanelWidth}px` } as CSSProperties}>
+      <div className={panel ? 'body' : 'body full'} style={{ '--panel-w': `${panelWidth}px` } as CSSProperties}>
         <div className="canvas">
           {s.map && drawn ? (
             <>
               <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} tourWide={tourWide} onSelect={onSelect} onClear={onClear} />
-              {!touring && !panel && <ConversationButton state={s} dispatch={dispatch} />}
-              {touring && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={setDraft} />}
+              {!panel && <ConversationButton state={s} dispatch={dispatch} />}
+              {selSize(s.selection) > 0 && (
+                <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} />
+              )}
+              {/* A box picked during the walkthrough has the floor until it's closed, or the next stop. */}
+              {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={() => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}
               <Dock map={s.map} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>
                 {askInPanel ? null : composer}
               </Dock>
@@ -254,7 +268,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
             <div className="empty">{s.phase === 'making' ? <div className="pulse">Claude is exploring the code…</div> : null}</div>
           )}
         </div>
-        {panel && <PanelResizer width={shownPanelWidth} onWidth={setPanelWidth} />}
+        {panel && <PanelResizer width={panelWidth} onWidth={setPanelWidth} />}
         {panel && <Panel state={s} dispatch={dispatch} onFix={onFix} onFocus={(id) => dispatch({ type: 'focus', id })} onOffer={onOffer} composer={askInPanel ? composer : null} />}
       </div>
     </div>

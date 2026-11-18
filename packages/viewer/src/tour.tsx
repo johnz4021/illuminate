@@ -11,8 +11,8 @@ export type TourBubbleProps = {
   report: CheckReport | null;
   stop: number;
   onTour: (stop: number | null) => void;
-  /** Start a question about this stop in the question box. */
-  onAsk: (text: string) => void;
+  /** Put this stop in the question box, as a chip. */
+  onAsk: () => void;
 };
 
 export function TourBubble({ map, report, stop: i, onTour, onAsk }: TourBubbleProps) {
@@ -35,7 +35,7 @@ export function TourBubble({ map, report, stop: i, onTour, onAsk }: TourBubblePr
       {stop.terms?.length ? <p className="muted small">Terms: {stop.terms.join(', ')}</p> : null}
       <div className="tour-nav">
         <button className="btn" disabled={i === 0} onClick={() => onTour(i - 1)}>‹ Back</button>
-        <button className="btn" onClick={() => onAsk(`About “${stop.title}”: `)}>Ask about this step</button>
+        <button className="btn" onClick={onAsk}>Ask about this step</button>
         <span className="grow" />
         {last
           ? <button className="btn primary" onClick={() => onTour(null)}>Done</button>

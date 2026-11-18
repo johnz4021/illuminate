@@ -26,9 +26,8 @@ export function firstScreen(map: CodeMap, report: CheckReport | null, ids: reado
 
 type WireframeShow = Extract<ScreenShow, { kind: 'wireframe' }>;
 type WireRegion = WireframeShow['page']['regions'][number];
-/** A page's wireframe needs more room than a sketch: the walkthrough bubble and the panel widen to these while one shows. */
+/** A page's wireframe needs more room than a sketch: the walkthrough bubble and a box's bubble widen to this while one shows. */
 export const WIREFRAME_BUBBLE_W = 600;
-export const WIREFRAME_PANEL_W = 560;
 
 /**
  * A page as a wireframe: its regions in five fixed places (top, left, main, right, bottom), with the region and the

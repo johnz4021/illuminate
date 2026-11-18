@@ -4,6 +4,7 @@ import '@fontsource-variable/instrument-sans';
 import '@xyflow/react/dist/style.css';
 import './styles.css';
 import './wireframe.css';
+import './code.css';
 import { App } from './app';
 
 createRoot(document.getElementById('root')!).render(

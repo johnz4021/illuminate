@@ -2,7 +2,7 @@
 // citations, with no tools: quick, and enough for many questions. If that isn't enough, Claude explores the repo. Anything
 // it adds must pass the checker or it isn't drawn; a requested change comes back as a validated fix proposal, never an edit.
 import * as crypto from 'node:crypto';
-import { addToMap, check, createBaseReader, createRepoReader, mapIds, parseMap, removeFromMap, settledProposals, type CheckReport, type CodeMap, type Status } from '@illuminate/core';
+import { addToMap, check, checkNotes, createBaseReader, createRepoReader, mapIds, parseMap, removeFromMap, settledProposals, type CheckReport, type CodeMap, type CodeNote, type Status } from '@illuminate/core';
 import type { Agent, Progress } from './agent';
 import { proposeFix, type FixProposal } from './fixes';
 import { explainerPrompt, quickAnswerPrompt, type EarlierTurn, type SelectionLine } from './prompts';
@@ -24,6 +24,11 @@ export type Answer = {
   proposed?: string[];
   /** Boxes whose picture of the screen this answer set (all confirmed). Missing on answers saved before screens existed. */
   screens?: string[];
+  /**
+   * Lines of code the answer points at, each with what it says about that line. Only ones the checker found are kept,
+   * and they are checked again whenever they are shown. Missing on answers saved before notes existed.
+   */
+  notes?: CodeNote[];
   /** What was found but not drawn, and why; problems with a proposed fix. */
   problems: string[];
   fix: FixProposal | null;
@@ -121,6 +126,12 @@ function selectionLines(map: CodeMap, s: Selection): SelectionLine[] {
   ];
 }
 
+/** The notes an answer may show: the ones whose line the checker found. The rest are said, not shown. */
+function notesOf(root: string, raw: readonly CodeNote[] | undefined): { notes: CodeNote[]; problems: string[] } {
+  const r = checkNotes(root, raw ?? []);
+  return { notes: r.notes, problems: r.dropped.map((d) => `A note on the code wasn't shown, its line isn't there: ${d}`) };
+}
+
 function statusOf(report: CheckReport, id: string): RefStatus['status'] {
   const c = report.nodes[id] ?? report.edges[id] ?? report.absences[id];
   return c ? c.status : 'unknown';
@@ -172,6 +183,7 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
       }
       if (quick.success && quick.data.route === 'answer' && quick.data.concept.trim()) {
         const q = quick.data;
+        const noted = notesOf(o.root, q.notes);
         const result: Answer = {
           id: `ans-${crypto.randomBytes(4).toString('hex')}`,
           question: o.question,
@@ -183,7 +195,8 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
             highlight: (q.moves?.highlight ?? []).filter((id) => live0.has(id)),
           },
           added: [],
-          problems: [],
+          notes: noted.notes,
+          problems: noted.problems,
           fix: null,
           source: 'map',
           offer: null,
@@ -306,6 +319,9 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
     else problems.push(...proposed.problems.map((p) => `The proposed fix can't be applied: ${p}`));
   }
 
+  const noted = notesOf(o.root, raw.notes);
+  problems.push(...noted.problems);
+
   const live = mapIds(map);
   const result: Answer = {
     id: `ans-${crypto.randomBytes(4).toString('hex')}`,
@@ -320,6 +336,7 @@ export async function answer(o: AnswerOptions): Promise<{ answer: Answer; map: C
     added,
     proposed: marked,
     screens: screened.filter((id) => live.has(id)),
+    notes: noted.notes,
     problems,
     fix,
     source: 'code',

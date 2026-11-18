@@ -73,12 +73,10 @@ const within = (from: string, symbol: string) => from === symbol || from.startsW
 const short = (text: string) => (text.length > 60 ? `${text.slice(0, 57)}…` : text);
 
 export function check(map: CodeMap, root: string, options: CheckOptions = {}): CheckReport {
-  const repo = createRepoReader(root);
-  const window = options.lineWindow ?? 3;
-  const now: Side = { repo, facts: factsFor(repo, fileExistsIn(repo.root)) };
-  // A map of a change: the same facts, read from the commit it is compared with.
-  const baseRepo = map.since ? createBaseReader(repo.root, map.since) : null;
-  const base: BaseSide | null = baseRepo && { repo: baseRepo, facts: factsFor(baseRepo, carryResolver((p: string) => baseRepo.has(p), fileExistsIn(repo.root))) };
+  const window = options.lineWindow ?? DEFAULT_LINE_WINDOW;
+  const { now, base } = sidesOf(map, root);
+  const repo = now.repo;
+  const baseRepo = base?.repo ?? null;
   const cmp: Compare | null = map.since ? { ref: map.since, base } : null;
   const byId = new Map(map.nodes.map((n) => [n.id, n]));
   let repoFiles: string[] | null = null;
@@ -174,12 +172,28 @@ function factsFor(repo: RepoReader, exists: Exists) {
 }
 type Facts = ReturnType<typeof factsFor>;
 /** One version of the code: the working tree, or the commit a map of a change is compared with. */
-type Side = { repo: RepoReader; facts: Facts };
+export type Side = { repo: RepoReader; facts: Facts };
 /** Set for a map of a change. `base` is null when its `since` names no commit here, so nothing can be compared. */
-type BaseSide = { repo: BaseReader; facts: Facts };
+export type BaseSide = { repo: BaseReader; facts: Facts };
 type Compare = { ref: string; base: BaseSide | null };
 
-function checkEvidence(repo: RepoReader, e: Evidence, window: number): EvidenceCheck {
+/** How far a cited line may have moved and still count, unless a caller says otherwise. */
+export const DEFAULT_LINE_WINDOW = 3;
+
+/**
+ * The versions of the code a map is read against: as it is now, and, for a map of a change, as it was at the commit
+ * it is compared with (null when the map has no `since`, or it names no commit here).
+ */
+export function sidesOf(map: Pick<CodeMap, 'since'>, root: string): { now: Side; base: BaseSide | null } {
+  const repo = createRepoReader(root);
+  const now: Side = { repo, facts: factsFor(repo, fileExistsIn(repo.root)) };
+  const baseRepo = map.since ? createBaseReader(repo.root, map.since) : null;
+  const base: BaseSide | null = baseRepo && { repo: baseRepo, facts: factsFor(baseRepo, carryResolver((p: string) => baseRepo.has(p), fileExistsIn(repo.root))) };
+  return { now, base };
+}
+
+/** Whether a cited line is in that version of the code, and where: on its line, a few lines off, or the one line of the file that has its text. */
+export function checkEvidence(repo: RepoReader, e: Evidence, window: number): EvidenceCheck {
   const base = { file: e.file, line: e.line };
   const read = repo.read(e.file);
   if (!read.ok) return { ...base, ok: false, foundAt: null, reason: read.reason };

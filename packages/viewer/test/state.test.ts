@@ -73,6 +73,23 @@ describe('reducer', () => {
     expect(currentView(s)).toEqual({ focus: 's4', highlight: ['s4', 'miss', 'n9'] });
   });
 
+  it('the conversation opens beside the walkthrough without ending it, and showing a reply on the map does end it', () => {
+    let s = reducer(ready(), { type: 'event', event: { type: 'answer', mapId: 'patient-converts', answer: answer({ added: ['n9'] }) } });
+    s = reducer(s, { type: 'overview' });
+    s = reducer(s, { type: 'tour', stop: 1 });
+    const stop = currentView(s);
+    s = reducer(s, { type: 'peek', open: true });
+    expect(s).toMatchObject({ tour: 1, peek: true, shown: 'a1' });
+    expect(currentView(s)).toEqual(stop); // the map stays on the walkthrough
+    s = reducer(s, { type: 'tour', stop: 0 });
+    expect(s).toMatchObject({ tour: 0, peek: true }); // moving on keeps it open
+    s = reducer(s, { type: 'peek', open: false });
+    expect(s).toMatchObject({ tour: 0, peek: false });
+    s = reducer(reducer(s, { type: 'peek', open: true }), { type: 'show', answerId: 'a1' });
+    expect(s).toMatchObject({ tour: null, peek: false, shown: 'a1' });
+    expect(currentView(s)!.focus).toBe('s4');
+  });
+
   it('closing an answer goes back to the whole map, with the walkthrough on offer again', () => {
     let s = reducer(ready(), { type: 'event', event: { type: 'answer', mapId: 'patient-converts', answer: answer({ added: ['n9'] }) } });
     s = reducer(s, { type: 'select', kind: 'nodes', id: 's1', additive: false });
@@ -164,5 +181,23 @@ describe('reducer', () => {
 describe('stopView', () => {
   it('lights up the arrows inside a stop that names only boxes or areas', () => {
     expect(stopView(map, 0)!.highlight).toEqual(expect.arrayContaining(['e12', 'e23', 'e34', 'eu12', 'eu23']));
+  });
+});
+
+describe('editor links', () => {
+  it('open a repo file at a line, whatever the folder is called', async () => {
+    const { editorUrl } = await import('../src/editor');
+    expect(editorUrl('vscode', '/Users/me/my app/', 'src/a b.ts', 12)).toBe('vscode://file/Users/me/my%20app/src/a%20b.ts:12');
+    expect(editorUrl('cursor', 'C:\\code\\app', 'src/x.ts', 3)).toBe('cursor://file/C:/code/app/src/x.ts:3');
+  });
+});
+
+describe('a question about a walkthrough step', () => {
+  it('goes to Claude with the step at the start, and reads back as the question plus the step', async () => {
+    const { askAboutStep, splitStep } = await import('../src/step');
+    const asked = askAboutStep('Nobody is listening', 'what triggers this?');
+    expect(asked).toBe('About the walkthrough step “Nobody is listening”: what triggers this?');
+    expect(splitStep(asked)).toEqual({ question: 'what triggers this?', step: 'Nobody is listening' });
+    expect(splitStep('About the email: why?')).toEqual({ question: 'About the email: why?', step: null });
   });
 });

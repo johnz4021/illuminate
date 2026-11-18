@@ -1,11 +1,14 @@
 // The side panel is the conversation about this map: each question, Claude's reply (a few plain sentences; the map
 // does the explaining), and under a reply whatever came with it (a fix to approve, the offer of a new map, boxes it added). Claude's
-// progress shows at the end while it works, then what's selected, then the question box.
-// (The walkthrough is a bubble on the map: tour.tsx. The button that reopens a closed conversation: history.tsx.)
+// progress shows at the end while it works, then the question box.
+// (The walkthrough is a bubble on the map: tour.tsx. So is what a selected box is: bubble.tsx. The button that reopens a
+// closed conversation: history.tsx.)
 import { useEffect, useRef, useState, type Dispatch, type ReactNode } from 'react';
 import { pageUrl } from './api';
+import { AnswerCode, ItemCode, useCodeShown, useDiffShown } from './code';
 import { ScreenView, screenOf } from './screen';
 import { Markdown } from './markdown';
+import { splitStep } from './step';
 import { layersOf, type Action, type FixState, type State } from './state';
 import type { Answer, CheckReport, ClaimCheck, CodeMap } from './types';
 
@@ -168,7 +171,7 @@ export function Panel({ state: s, dispatch, onFix, onFocus, onOffer, composer }:
         {layers.length > 0 && (
           <button className="link-btn small" onClick={() => dispatch({ type: 'allLayers', visible: allHidden })}>{allHidden ? 'Show everything' : 'Show the original map'}</button>
         )}
-        <button className="card-close" aria-label="Close the conversation" title="Close (Esc). It stays here to reopen." onClick={() => dispatch({ type: 'overview' })}>×</button>
+        <button className="card-close" aria-label="Close the conversation" title="Close (Esc). It stays here to reopen." onClick={() => dispatch(s.tour !== null ? { type: 'peek', open: false } : { type: 'overview' })}>×</button>
       </header>
 
       <div className="panel-scroll" ref={scroller}>
@@ -187,11 +190,10 @@ export function Panel({ state: s, dispatch, onFix, onFocus, onOffer, composer }:
           </article>
         )}
 
-        {!s.answers.length && !job && !selected.length && <p className="muted small thread-empty">Ask anything about this map. Click a box or arrow first to ask about it.</p>}
+        {!s.answers.length && !job && <p className="muted small thread-empty">Ask anything about this map. Click a box or arrow first to ask about it.</p>}
       </div>
 
       <footer className="panel-foot">
-        {selected.length > 0 && <Selected key={selected.join(' ')} map={map} report={s.report} ids={selected} compact={s.answers.length > 0 || job?.kind === 'ask'} />}
         {composer}
       </footer>
     </aside>
@@ -199,11 +201,14 @@ export function Panel({ state: s, dispatch, onFix, onFocus, onOffer, composer }:
 }
 
 /** Your side of a turn: the question. */
-function You({ question, about }: { question: string; about?: string }) {
+function You({ question: asked, about }: { question: string; about?: string }) {
+  // A question asked during the walkthrough carries its step at the start (step.ts); show it with what it's about.
+  const { question, step } = splitStep(asked);
+  const parts = [step && `the step “${step}”`, about].filter(Boolean);
   return (
     <div className="you">
       <p className="you-q">{question}</p>
-      {about && <span className="you-about">About {about}</span>}
+      {parts.length > 0 && <span className="you-about">About {parts.join(', ')}</span>}
     </div>
   );
 }
@@ -212,7 +217,8 @@ function You({ question, about }: { question: string; about?: string }) {
 function Turn({ answer: a, state: s, dispatch, onFix, onFocus, onOffer }: { answer: Answer; state: State; dispatch: Dispatch<Action>; onFix: PanelProps['onFix']; onFocus: (id: string) => void; onOffer: PanelProps['onOffer'] }) {
   const map = s.map!;
   const fix = a.fix ? s.fixes[a.fix.id] ?? null : null;
-  const lit = a.id === s.shown;
+  // During the walkthrough the map shows its stop, so no reply is lit, and each can be shown (which ends it).
+  const lit = a.id === s.shown && s.tour === null;
   const about = [...(a.selection.nodes ?? []), ...(a.selection.edges ?? []), ...(a.selection.absences ?? [])].map((id) => nameOf(map, id)).join(', ');
   const layer = layersOf(s).find((l) => l.answerId === a.id);
   const fixProblems = a.problems.filter((x) => x.startsWith('The proposed fix'));
@@ -236,6 +242,7 @@ function Turn({ answer: a, state: s, dispatch, onFix, onFocus, onOffer }: { answ
               : <button className="link-btn small" onClick={() => dispatch({ type: 'show', answerId: a.id })}>Show on the map</button>)}
           </div>
           <Markdown text={a.concept} className="depth-text" />
+          {(a.notes ?? []).length > 0 && <AnswerCode mapId={s.mapId} answerId={a.id} stamp={s.report} />}
           {(a.screens ?? []).map((id) => {
             const show = screenOf(s.report, id);
             return show ? <ScreenView key={id} show={show} name={nameOf(map, id)} /> : null;
@@ -297,16 +304,17 @@ function OfferCard({ answer, busy, onOffer }: { answer: Answer; busy: boolean; o
   );
 }
 
-/** What's selected: what your next question will be about, with what the map says about it. */
-/**
- * What's selected, above the question box. Once there's a conversation it's one line with "Details" to open it, so
- * picking a box while reading a reply doesn't cover the reply.
- */
-function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckReport | null; ids: string[]; compact: boolean }) {
-  const [open, setOpen] = useState(!compact);
+/** What a selected box or arrow is, shown in a bubble beside it on the map (`bubble.tsx`), not in the conversation. */
+// Selecting it already puts it in the question box (a chip there), so the bubble has no ask button of its own.
+export function Selected({ mapId, map, report, ids, onClose }: { mapId: string; map: CodeMap; report: CheckReport | null; ids: string[]; onClose: () => void }) {
+  const [codeShown, setCodeShown] = useCodeShown();
+  const [diffShown, setDiffShown] = useDiffShown();
+  const [jump, setJump] = useState<{ at: string; n: number } | null>(null);
+  const close = <button className="card-close" aria-label="Close" title="Close (Esc)" onClick={onClose}>×</button>;
   if (ids.length > 1) {
     return (
       <Card eyebrow={`Asking about ${ids.length} things`} className="card-selected">
+        {close}
         <Chips map={map} ids={ids.map((id) => ({ id, status: checkOf(report, id)?.status ?? 'unknown' }))} onPick={() => undefined} />
       </Card>
     );
@@ -324,18 +332,9 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
   const change = c && 'change' in c ? c.change ?? null : null;
   const since = report?.since?.commit?.slice(0, 7) ?? 'the commit this map is compared with';
   const gapCheck = gap ? report?.absences[gap.id] ?? null : null;
-  if (!open) {
-    return (
-      <div className={cls('selected-line', gap && 'selected-line-dead')}>
-        <span className="eyebrow">{what}</span>
-        <span className="selected-name">{nameOf(map, id)}</span>
-        <button className="link-btn small" onClick={() => setOpen(true)}>Details</button>
-      </div>
-    );
-  }
   return (
     <Card eyebrow={what} title={nameOf(map, id)} tone={gap ? 'dead' : undefined} className="card-selected">
-      {compact && <button className="link-btn small selected-hide" onClick={() => setOpen(false)}>Hide details</button>}
+      {close}
       {node?.explain?.concept && <Markdown text={node.explain.concept} className="depth-text" />}
       {node && screenOf(report, node.id) && <ScreenView show={screenOf(report, node.id)!} name={node.name} />}
       {proposal && (
@@ -346,10 +345,17 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
       )}
       {change && (
         <div className={cls('change-note', `change-note-${change.kind}`)}>
-          <strong>{CHANGE_SAYS[change.kind]} {since}.</strong>
-          {change.kind === 'changed' && !change.diff && ' A line it cites wasn’t there then.'}
-          {change.kind === 'removed' && ' It was in the code then and is gone now.'}
-          {change.diff && <pre className="diff">{change.diff.map((l, i) => <span key={i} className={l.startsWith('+ ') ? 'add' : l.startsWith('- ') ? 'del' : ''}>{l}{'\n'}</span>)}</pre>}
+          <div className="change-head">
+            <span>
+              <strong>{CHANGE_SAYS[change.kind]} {since}.</strong>
+              {change.kind === 'changed' && !change.diff && ' A line it cites wasn’t there then.'}
+              {change.kind === 'removed' && ' It was in the code then and is gone now.'}
+              {change.diff && <DiffSize diff={change.diff} />}
+            </span>
+            {/* The diff can be long, so it starts closed, like the code. */}
+            {change.diff && <button className="link-btn small" onClick={() => setDiffShown(!diffShown)}>{diffShown ? 'Hide what changed' : 'Show what changed'}</button>}
+          </div>
+          {change.diff && diffShown && <pre className="diff">{change.diff.map((l, i) => <span key={i} className={l.startsWith('+ ') ? 'add' : l.startsWith('- ') ? 'del' : ''}>{l}{'\n'}</span>)}</pre>}
         </div>
       )}
       {gap && gapCheck && (
@@ -363,15 +369,35 @@ function Selected({ map, report, ids, compact }: { map: CodeMap; report: CheckRe
       {c && c.status === 'unconfirmed' && <div className="warn small">Couldn't confirm against the code: {c.reasons.join('; ')}</div>}
       {evidence.length > 0 && (
         <div className="basis">
-          <div className="eyebrow">{change?.kind === 'removed' ? `In the code as it was at ${since}` : 'In the code'}</div>
+          <div className="code-toggle">
+            <div className="eyebrow">{change?.kind === 'removed' ? `In the code as it was at ${since}` : 'In the code'}</div>
+            <button className="link-btn small" onClick={() => setCodeShown(!codeShown)}>{codeShown ? 'Hide the code' : 'Show the code'}</button>
+          </div>
           <div className="chips">
             {evidence.map((e, i) => {
               const ok = evidenceChecks[i]?.ok ?? false;
-              return <span key={i} className={cls('chip static', !ok && 'chip-unconfirmed')}><span className={ok ? 'tick' : 'qmark'}>{ok ? '✓' : '?'}</span>{e.file}:{evidenceChecks[i]?.foundAt ?? e.line}</span>;
+              const line = evidenceChecks[i]?.foundAt ?? e.line;
+              // A line the checker found can be jumped to in the code below; one it didn't find has nowhere to go.
+              return ok
+                ? <button key={i} className="chip cite" title="Show this line in the code" onClick={() => { setCodeShown(true); setJump((j) => ({ at: `${e.file}:${line}`, n: (j?.n ?? 0) + 1 })); }}><span className="tick">✓</span>{e.file}:{line}</button>
+                : <span key={i} className="chip static chip-unconfirmed"><span className="qmark">?</span>{e.file}:{line}</span>;
             })}
           </div>
+          {codeShown && (node || edge) && <ItemCode mapId={mapId} itemId={id} change={change?.kind ?? null} since={since} stamp={report} jump={jump} />}
         </div>
       )}
     </Card>
+  );
+}
+
+/** How many lines a diff adds and takes away, as on the box's badge. */
+function DiffSize({ diff }: { diff: string[] }) {
+  const added = diff.filter((l) => l.startsWith('+ ')).length;
+  const removed = diff.filter((l) => l.startsWith('- ')).length;
+  return (
+    <span className="diff-size">
+      {added > 0 && <span className="add"> +{added}</span>}
+      {removed > 0 && <span className="del"> −{removed}</span>}
+    </span>
   );
 }

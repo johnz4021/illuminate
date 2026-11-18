@@ -1,7 +1,7 @@
 // What the model must return, as JSON Schema for structured output. Derived from the map format's zod schemas, so the
 // two can't drift. Output is still validated with zod (and the map with `parseMap`) after it comes back.
 import { z } from 'zod';
-import { Absence, Area, CodeMap, Edge, Node, Proposal, Screen } from '@illuminate/core';
+import { Absence, Area, CodeMap, Edge, Evidence, Node, Proposal, Screen } from '@illuminate/core';
 
 /** Keywords some structured-output validators reject; zod and `parseMap` enforce them after the fact anyway. */
 const STRIP = new Set(['$schema', '$id', 'pattern', 'default', 'format']);
@@ -30,6 +30,12 @@ export const RawFix = z.object({
 });
 
 /**
+ * A line of code an answer points at: a citation like any other (`text` is on that line), with what the answer says
+ * about it. The checker decides whether it is shown.
+ */
+export const RawNote = Evidence.extend({ note: z.string().min(1).max(300) });
+
+/**
  * A box as Claude writes it: the map format's node, but only the plain explanation. The format still allows `how` and
  * `code` (older maps have them), but the map shows the code itself, so Claude isn't asked for them.
  */
@@ -48,6 +54,8 @@ export const RawAnswer = z.object({
     .object({ areas: z.array(Area).optional(), nodes: z.array(WrittenNode).optional(), edges: z.array(Edge).optional(), absences: z.array(Absence).optional() })
     .optional(),
   moves: z.object({ focus: z.string().optional(), highlight: z.array(z.string()).optional() }).optional(),
+  /** Lines of code the answer points at, each with a note, when the question is about what the code itself says. */
+  notes: z.array(RawNote).max(8).optional(),
   /** Pictures of the screen for boxes on the map (existing ones, or ones in `add`), when the question is about what the person sees. */
   screens: z.array(z.object({ node: z.string(), screen: Screen })).max(4).optional(),
   /** Boxes or arrows already on the map that a suggested change would alter or remove (new ones go in `add`, marked there). */
@@ -56,7 +64,7 @@ export const RawAnswer = z.object({
 });
 
 /** The first try, from the map alone (no tools): answer it, send it on to Claude with the code, or say it's elsewhere. */
-export const RawQuickAnswer = RawAnswer.pick({ refs: true, moves: true }).extend({
+export const RawQuickAnswer = RawAnswer.pick({ refs: true, moves: true, notes: true }).extend({
   /**
    * `answer`: the map and the excerpts fully answer it. `code`: about this map, but needs code it doesn't show.
    * `elsewhere`: about a different part of the app than this map covers.

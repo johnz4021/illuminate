@@ -1,5 +1,5 @@
 // Talking to the local illuminate server. The token comes from the link illuminate printed (`?t=…`) and goes on every call.
-import type { Answer, CheckReport, CodeMap, MapMeta, Selection, ServerEvent } from './types';
+import type { Answer, CheckReport, CodeMap, CodeView, MapMeta, Selection, ServerEvent } from './types';
 
 function readToken(): string {
   const fromUrl = new URLSearchParams(location.search).get('t');
@@ -62,6 +62,11 @@ export const api = {
     call<{ edgeId: string | null; closed: string[]; files: string[] }>('POST', `/api/maps/${encodeURIComponent(id)}/fixes/${encodeURIComponent(fixId)}/approve`),
   reject: (id: string, fixId: string) => call<{ ok: true }>('POST', `/api/maps/${encodeURIComponent(id)}/fixes/${encodeURIComponent(fixId)}/reject`),
   undo: (id: string, fixId: string) => call<{ ok: true }>('POST', `/api/maps/${encodeURIComponent(id)}/fixes/${encodeURIComponent(fixId)}/undo`),
+  /** The code behind a box or arrow, as it is now or (on a map of a change) as it was. `root` is the repo's folder, for editor links. */
+  code: (id: string, item: string, when: 'now' | 'before' = 'now') =>
+    call<CodeView & { root: string }>('GET', `/api/maps/${encodeURIComponent(id)}/code?item=${encodeURIComponent(item)}${when === 'before' ? '&when=before' : ''}`),
+  /** The code an answer's notes point at. */
+  answerCode: (id: string, answerId: string) => call<CodeView & { root: string }>('GET', `/api/maps/${encodeURIComponent(id)}/answers/${encodeURIComponent(answerId)}/code`),
   /** Stop the local illuminate server. Refused while Claude is working on a map. */
   stop: () => call<{ ok: true }>('POST', '/api/stop'),
 };

@@ -195,6 +195,20 @@ anything Claude proposes is drawn as a proposal on top of it. It has to win on e
   columns because Claude can't get them badly wrong; move to rows and columns only if real pages don't fit. Journey
   boxes are no longer forced to carry a picture. Real Claude hasn't written a wireframe yet, so how well it reads a
   page's layout from code is untested.
+- **Code in the panel built 2026-11-18** (see `CLAUDE.md`, "Code"). Ridham (crypto, Solidity repo) pointed at the side
+  chat while trying to pin down a payload and wanted the code with notes on it, not a chat reply. Now a selected box
+  shows its function with cited lines marked and an editor link, a changed box can be read as it was, and an answer
+  about the code carries notes on real lines (checked, like every citation). Tested with the scripted preview and one
+  real question on the care app (three notes, all confirmed). Not tested: the editor links for Windsurf and Zed, a
+  Solidity repo (the facts don't parse it, so blocks there are the lines around a citation, with no function name).
+  Still open from his feedback: maps drop where state is saved (the 6-8 box rule calls it plumbing), arrows don't
+  carry a payload, and the top bar doesn't say when a repo's language gets the weaker, lines-only check.
+- **The panel is only the conversation (2026-11-18, 0.4.0).** A selected box or arrow is described in a bubble beside
+  it on the map (code and diff closed until opened, resizable from a corner grip), and selecting no longer opens or
+  squeezes the panel. The conversation can be opened during the walkthrough without ending it, and its button moved to
+  the bottom-right corner (the change key covered it top-left). "Ask about this step" puts the step in the question box
+  as a chip. Stop illuminate asks first: John stopped a server by accident on 11-17. Closing the last tab still stops
+  it after a few seconds, without asking. Checked with the scripted preview in headless Chrome, not by hand.
 - **How to tell it's helpful:** Lucia, Felix and Dhruv on their own repos for a week. Did they open it a second time
   unprompted, and ask a follow-up on the map instead of in the terminal?
 

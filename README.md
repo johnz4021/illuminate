@@ -69,9 +69,11 @@ parts are now in the code.
 ## On the map
 
 - **Take the walkthrough.** A few stops, starting with the answer to your question.
-- **Click any box or arrow** to see what it does and the code behind it.
+- **Click any box or arrow** to see what it does and the code behind it: the function itself, with the lines the map
+  relies on marked and a link that opens the file in your editor at that line.
 - **Ask a follow-up** in the box at the bottom, or select something first and ask about that. The answer lights up the
-  part of the map it's about.
+  part of the map it's about. When the question is about the code itself ("what's in this payload?"), the answer comes
+  with the lines that show it, each with a note.
 - **Ask for a fix.** Claude proposes one, drawn on the map next to the exact change. Nothing is edited until you
   approve it.
 

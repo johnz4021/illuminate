@@ -282,6 +282,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
       <EdgeLabelRenderer>
         <div
           className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.ghost && 'ghost', data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
+          data-id={id}
           style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
           onClick={(e) => {
             e.stopPropagation();
@@ -423,7 +424,7 @@ export function MapGraph(p: GraphProps) {
           screen: p.report?.screens?.[n.id]?.status === 'confirmed',
           selected: sel.nodes.includes(n.id),
           hl: !!lit?.has(n.id),
-          dim: !!lit && !lit.has(n.id),
+          dim: !!lit && !lit.has(n.id) && !sel.nodes.includes(n.id), // what you picked is never dimmed: its bubble points at it
           fresh: p.fresh.includes(n.id),
           change: drawnAs(p.report?.nodes[n.id]?.change?.kind ?? null),
           changeSize: changeSize(p.report?.nodes[n.id]?.change?.diff),
@@ -486,7 +487,7 @@ export function MapGraph(p: GraphProps) {
           ghost: shadow,
           confirmed,
           hl: isHl,
-          dim: !!hl && !on(e.id),
+          dim: !!hl && !on(e.id) && !sel.edges.includes(e.id),
           selected: sel.edges.includes(e.id),
           onClick: (additive) => p.onSelect('edges', e.id, additive),
         },
@@ -514,7 +515,7 @@ export function MapGraph(p: GraphProps) {
           variant: 'absence',
           confirmed,
           hl: on(a.id),
-          dim: !!hl && !on(a.id),
+          dim: !!hl && !on(a.id) && !sel.absences.includes(a.id),
           selected: sel.absences.includes(a.id),
           onClick: (additive) => p.onSelect('absences', a.id, additive),
         },
@@ -555,7 +556,8 @@ export function MapGraph(p: GraphProps) {
   useEffect(() => {
     const before = lastWidth.current;
     lastWidth.current = paneWidth;
-    if (!before || !paneWidth || before === paneWidth) return;
+    // During the walkthrough the camera fits the stop again instead (see viewKey), so the stop stays whole.
+    if (!before || !paneWidth || before === paneWidth || p.touring) return;
     const vp = rf.getViewport();
     void rf.setViewport({ ...vp, x: vp.x + (paneWidth - before) / 2 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -563,7 +565,9 @@ export function MapGraph(p: GraphProps) {
 
   // The camera follows the view: fly to what's in focus, or show the whole map. It waits (a frame at a time) until
   // React Flow has measured every box, or it would fit an empty canvas.
-  const viewKey = JSON.stringify([layout?.key, p.view?.focus, p.view?.highlight, p.touring, p.tourWide]);
+  // During the walkthrough the width counts too: opening the conversation beside it narrows the map, and the stop is
+  // fitted again into what's left.
+  const viewKey = JSON.stringify([layout?.key, p.view?.focus, p.view?.highlight, p.touring, p.tourWide, p.touring ? paneWidth : null]);
   const firstFit = useRef(true);
   useEffect(() => {
     if (!layout) return;

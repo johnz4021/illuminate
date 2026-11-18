@@ -1,5 +1,5 @@
 /* A wireframe: a page as regions in five fixed places, with the part a box is about marked. It is drawn at its natural
-   size; the walkthrough bubble and the panel widen to give it the shape of a page (see WIREFRAME_BUBBLE_W in
+   size; the walkthrough bubble and a box's bubble widen to give it the shape of a page (see WIREFRAME_BUBBLE_W in
    screen.tsx). The element styles (.sk, .sk-button, …) are the sketch's, in styles.css. */
 .wf { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--paper); color: var(--ink); min-height: 200px; }
 .wf-mid { display: grid; gap: 6px; flex: 1; min-height: 0; }

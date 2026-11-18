@@ -100,11 +100,19 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   the bottom (`dock.tsx`) starts the walkthrough, and holds the question box while the conversation is closed; zoom is
   the wheel or trackpad. The walkthrough runs in a bubble on the map (`tour.tsx`), its text and buttons together; the
   panel steps aside meanwhile (unless it has an error or Claude's progress) and the camera leaves room for the bubble.
+  The Conversation button still shows then: it opens the panel beside the walkthrough (`peek` in `state.ts`) without
+  ending it, and the stop is fitted into the narrower map; "Show on the map" on a reply is what ends the walkthrough.
+  "Ask about this step" puts the stop in the question box as a chip (removable, like a selection); a question asked with it
+  starts with the step's name for Claude (`step.ts`), and the conversation shows that under the question instead.
 - **Conversation** (`panel.tsx`): the panel is the conversation on a map. Each turn is the question, then the reply
   (short Markdown shaped to the question, direct answer first: the map does the explaining, and boxes carry their code), then what came with it: a
   fix, the offer of a new map, or what it added (hideable). The reply lit on the map is drawn dark; "Show on the map"
   relights an earlier one. While it's open the question box sits at its bottom (one box, never two). It opens for an
-  answer, a selection, Claude's progress or an error; closed, a corner button reopens it (`history.tsx`). Drag its
+  answer, Claude's progress or an error; closed, a button in the bottom-right corner reopens it (`history.tsx`).
+  A selected box or arrow is described in a bubble beside it on the map (`bubble.tsx`, which places it in screen space
+  on the side with room, keeps it above the dock, and moves the camera once if the box or bubble wouldn't fit; a grip
+  on its far bottom corner resizes it, remembered in localStorage), never
+  in the panel; during the walkthrough it takes the place of the walkthrough bubble until it's closed. Drag its
   left edge to resize it (`resize.tsx`, kept in localStorage); when the map area changes width, the camera keeps its
   middle in the middle. Claude gets the last six turns (`conversationSoFar` in `prompts.ts`) in both answer steps.
   Whatever Claude writes as prose (replies, box explanations, walkthrough stops, fix summaries) is shown as Markdown
@@ -173,6 +181,15 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   claims: a screen that fails is not shown, and the box stays. The channel offers `illuminate_screens` (what the repo
   can show) and `illuminate_capture` (returns the image for Claude to look at). illuminate never starts the app. The
   CLI's Agent SDK session has no capture tool yet, so there it can only use `image` and `sketch`.
+- **Code** (`core/src/code.ts`, `viewer/src/code.tsx`, `code.css`, `editor.ts`): selecting a box or arrow shows its
+  code in its bubble, once "Show the code" is opened: the function it names, or the one its cited line is in (whole when short, the lines around the
+  citation when long, plain lines for a language the facts don't parse), with cited lines marked. `codeOf` builds it
+  on request (`GET /api/maps/<id>/code?item=`), locating lines with the checker's own `checkEvidence`, and
+  `when=before` reads the commit a map of a change is compared with. Citation chips jump to their line, and each
+  block links to the person's editor (`vscode://file/…:line`; the choice is kept in localStorage), so illuminate
+  never has to be an editor. An answer may carry `notes` (a citation plus a sentence about that line, `RawNote` in
+  `schemas.ts`): `checkNotes` keeps the ones whose line is found when the answer comes in, and `codeForNotes` checks
+  them again each time they are shown under the reply. Nothing about code is stored except those notes.
 - **Fix** (`fixes.ts`): `proposeFix` records file hashes → `applyFix` writes only if they still match →
   `connectAfterFix` draws the new edge and closes the gaps it fills → `undoFix`.
 - **Serve** (`server.ts`, `store.ts`): maps persist as `<repo>/.illuminate/maps/<id>.json`, with their answers and where

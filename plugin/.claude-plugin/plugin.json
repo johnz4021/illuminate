@@ -1,6 +1,6 @@
 {
   "name": "illuminate",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Checked, interactive maps of how your code works. Ask how something works and your Claude Code session draws a map in your browser; a program checks every box and arrow against the code.",
   "author": { "name": "johnz4021" },
   "homepage": "https://github.com/johnz4021/illuminate#readme",
@@ -10,7 +10,7 @@
   "mcpServers": {
     "illuminate": {
       "command": "npx",
-      "args": ["-y", "@johnz4021/illuminate@0.3.0", "channel"]
+      "args": ["-y", "@johnz4021/illuminate@0.4.0", "channel"]
     }
   }
 }

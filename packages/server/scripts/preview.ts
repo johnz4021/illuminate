@@ -156,6 +156,11 @@ const agent: Agent = async (req) => {
       route: 'answer',
       refs: ['s4', 'miss'],
       moves: { focus: 's4', highlight: ['s4', 'miss', 'u1'] },
+      // Lines the answer points at: shown as code under the reply, each note beside its line.
+      notes: [
+        { file: 'src/patients/service.ts', line: 5, text: "db.update('patients'", note: 'First the patient is saved as enrolled.' },
+        { file: 'src/patients/service.ts', line: 6, text: "bus.emit('patient.converted'", note: 'Then the announcement goes out. All it carries is the patient id.' },
+      ],
     },
     sessionId: 'preview-explainer',
     cost: 0,
