@@ -1,4 +1,5 @@
-// An `Agent` that is the person's own Claude Code session, reached through a channel. Each call becomes a request that
+// An `Agent` that is the person's own coding agent session (Claude Code or Codex, see host.ts), reached through the
+// channel. Each call becomes a request that
 // waits until Claude Code submits output for it (or gives up). The maker, explainer and checker don't know the
 // difference: they get output back exactly as from `sdkAgent`, and everything still goes through `check()`.
 //
@@ -7,9 +8,11 @@
 // into the session.
 //
 // A request can go unheard: no `illuminate_listen` call is open (the session closed, or Claude stopped listening) and
-// the session wasn't started with channels, so the announcement is dropped and nothing tells us. So a request no one has
-// picked up says so on the map after `nudgeMs`, and gives up after `giveUpMs` rather than wait forever.
+// the session wasn't started with channels, so the announcement is dropped and nothing tells us. In Codex, work started
+// on the page (rather than in its chat) is never heard on its own. So a request no one has picked up says so on the map
+// after `nudgeMs`, and gives up after `giveUpMs` rather than wait forever.
 import type { Agent, AgentRequest, AgentResponse } from './agent';
+import { CLAUDE_CODE, type AgentHost } from './host';
 import { validatorFor } from './schemas';
 
 export type BridgeRequest = {
@@ -40,21 +43,22 @@ export type Bridge = {
 
 export const CLAUDE_CODE_SESSION = 'claude-code';
 
-export const NOT_PICKED_UP =
-  'Claude Code isn\'t listening to the map right now. In your Claude Code session, say "listen to illuminate", and it will pick this up.';
-export const NEVER_PICKED_UP =
-  'Claude Code never picked this up, so nothing was answered. Its session may have closed. In Claude Code, say "listen to illuminate", then ask again.';
+export const NOT_PICKED_UP = CLAUDE_CODE.notPickedUp;
+export const NEVER_PICKED_UP = CLAUDE_CODE.neverPickedUp;
 
 const view = (e: Entry): BridgeRequest => ({ id: e.id, label: e.label, prompt: e.prompt, schema: e.schema, tools: e.tools, continues: e.continues });
 
 export function createBridge(o: {
   announce: (r: BridgeRequest) => void;
-  /** After this long unclaimed, say so on the map (default 30 s). */
+  /** Which agent picks requests up, for what the map says (default Claude Code). Asked per request: the channel only
+   * knows once the MCP client has connected. */
+  host?: () => AgentHost;
+  /** After this long unclaimed, say so on the map (default: the host's `nudgeMs`). */
   nudgeMs?: number;
   /** After this long unclaimed, give up with an error (default 5 min). */
   giveUpMs?: number;
 }): Bridge {
-  const nudgeMs = o.nudgeMs ?? 30_000;
+  const host = o.host ?? (() => CLAUDE_CODE);
   const giveUpMs = o.giveUpMs ?? 5 * 60_000;
   const entries: Entry[] = [];
   const waiters: ((r: Entry) => void)[] = [];
@@ -63,6 +67,7 @@ export function createBridge(o: {
   const agent: Agent = (req: AgentRequest) =>
     new Promise<AgentResponse>((resolve, reject) => {
       if (req.signal?.aborted) return reject(new Error('Stopped.'));
+      const h = host();
       const entry: Entry = {
         id: `r${++n}`,
         label: req.label ?? 'Work for illuminate',
@@ -71,7 +76,7 @@ export function createBridge(o: {
         tools: req.tools ?? ['Read', 'Grep', 'Glob'],
         continues: !!req.resume,
         handed: false,
-        claimed: () => req.onProgress?.({ kind: 'status', text: 'Claude Code is working on this in your terminal' }),
+        claimed: () => req.onProgress?.({ kind: 'status', text: h.claimed }),
         timers: [],
         resolve: (r) => {
           settle(entry);
@@ -93,7 +98,7 @@ export function createBridge(o: {
         waiter(entry);
         return;
       }
-      req.onProgress?.({ kind: 'status', text: 'Waiting for Claude Code to pick this up' });
+      req.onProgress?.({ kind: 'status', text: h.waiting });
       const later = (ms: number, f: () => void) => {
         const t = setTimeout(() => {
           if (!entry.handed && entries.includes(entry)) f();
@@ -101,8 +106,8 @@ export function createBridge(o: {
         t.unref?.();
         entry.timers.push(t);
       };
-      later(nudgeMs, () => req.onProgress?.({ kind: 'status', text: NOT_PICKED_UP }));
-      later(giveUpMs, () => entry.reject(Object.assign(new Error(NEVER_PICKED_UP), { unheard: true })));
+      later(o.nudgeMs ?? h.nudgeMs, () => req.onProgress?.({ kind: 'status', text: h.notPickedUp }));
+      later(giveUpMs, () => entry.reject(Object.assign(new Error(h.neverPickedUp), { unheard: true })));
       o.announce(view(entry));
     });
 
@@ -174,7 +179,7 @@ export function createBridge(o: {
     fail(id, reason) {
       const e = entries.find((x) => x.id === id);
       if (!e) return false;
-      e.reject(new Error(`Claude Code couldn't finish this: ${reason}`));
+      e.reject(new Error(`${host().name} couldn't finish this: ${reason}`));
       return true;
     },
     outstanding: () => entries.map(view),

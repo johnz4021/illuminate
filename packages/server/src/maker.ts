@@ -15,6 +15,8 @@ export type MakeOptions = {
   agent: Agent;
   model?: string;
   repairs?: number;
+  /** Who does the drafting, as the progress names them (default "Claude"; "Codex" when the channel runs in Codex). */
+  agentName?: string;
   onProgress?: (p: Progress | Status) => void;
   signal?: AbortSignal;
 };
@@ -43,10 +45,11 @@ function pinned(parsed: ParseResult, root: string): ParseResult {
 
 export async function makeMap(o: MakeOptions): Promise<MakeResult> {
   const status = (text: string) => o.onProgress?.({ kind: 'status', text });
+  const who = o.agentName ?? 'Claude';
   status('Scanning the code for ways in, routes and tables');
   const hints = await headStart(o.root);
   const symbolsIn = symbolIndexOf(hints.scan);
-  status('Claude is exploring the code');
+  status(`${who} is exploring the code`);
   const run = (prompt: string, resume: string | null, schema: Record<string, unknown>) =>
     o.agent({ prompt, label: `Making the map for "${o.question}"`, schema, cwd: o.root, resume, model: o.model, onProgress: o.onProgress, signal: o.signal });
 
@@ -76,12 +79,12 @@ export async function makeMap(o: MakeOptions): Promise<MakeResult> {
       if (off(report) > 0) repair = { prompt: evidenceRepairPrompt(report, symbolsIn), reply: 'patch' };
     }
     if (!repair || attempt >= (o.repairs ?? 2)) break;
-    status(parsed.ok ? 'Asking Claude to fix the claims that didn\'t check out' : current ? 'Asking Claude to fix its changes' : 'Asking Claude to fix the map\'s structure');
+    status(parsed.ok ? `Asking ${who} to fix the claims that didn't check out` : current ? `Asking ${who} to fix its changes` : `Asking ${who} to fix the map's structure`);
     res = await run(repair.prompt, res.sessionId, repair.reply === 'map' ? MAP_SCHEMA : MAP_PATCH_SCHEMA);
     reply = repair.reply;
     cost += res.cost ?? 0;
     rounds++;
   }
-  if (!best) throw new Error(`Claude's map couldn't be read: ${lastProblems.slice(0, 5).join('; ')}`);
+  if (!best) throw new Error(`${who}'s map couldn't be read: ${lastProblems.slice(0, 5).join('; ')}`);
   return { ...best, sessionId: res.sessionId, cost, rounds };
 }

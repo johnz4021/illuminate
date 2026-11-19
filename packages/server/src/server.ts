@@ -2,6 +2,8 @@
 // and streams progress over a WebSocket. Binds to 127.0.0.1 only. Every API call needs the random token from the page
 // URL, and requests whose Host or Origin isn't this server are refused (so other sites in the browser can't drive it).
 // With `autoStop` it stops itself once no illuminate tab is open and Claude isn't working, so it doesn't linger.
+// Each map page tells it what is selected there (kept in memory only), so a question asked in an agent's own chat
+// (Codex, see host.ts) can be about what the person is pointing at.
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
@@ -13,10 +15,18 @@ import { sdkAgent, type Agent, type Progress } from './agent';
 import { answer, type Answer, type Selection } from './explainer';
 import { applyFix, connectAfterFix, undoFix, type AppliedFix, type FixProposal } from './fixes';
 import { headCommit } from './git';
+import { askAboutStep } from './step';
 import { makeMap, type Status } from './maker';
 import { createStore, type MapMeta, type SavedFix, type StoredMap } from './store';
 
 export type JobKind = 'make' | 'ask';
+/**
+ * Who does the model work, as the page shows it: `name` in "… is working", and where questions are asked. `page`: in
+ * the map's own question box. `chat`: in the agent's chat beside the page (Codex), which then asks illuminate.
+ */
+export type PageAgent = { name: string; asks: 'page' | 'chat' };
+/** What a map page last reported: what is selected on it, and the walkthrough stop on screen. */
+export type PageSelection = { selection: Selection; step: string | null; at: number };
 export type JobState = { kind: JobKind; question: string; progress: string[] };
 export type ServerEvent =
   | { type: 'job'; mapId: string; job: JobKind; status: 'started' | 'done' | 'failed'; question: string; error?: string }
@@ -46,6 +56,8 @@ export type ServerOptions = {
   onStop?: (reason: 'idle' | 'requested') => void;
   /** Every event sent to the open tabs, also handed here (the Claude Code channel uses it to know when work is done). */
   onEvent?: (event: ServerEvent) => void;
+  /** Who does the model work, for the page (default: Claude, asked on the page). */
+  page?: PageAgent;
 };
 export type IlluminateServer = {
   url: string;
@@ -53,6 +65,15 @@ export type IlluminateServer = {
   token: string;
   pageUrl(mapId?: string): string;
   startMap(question: string): string;
+  /**
+   * A question asked in the agent's chat about a map open in the browser: the map named, else the one whose page was
+   * used last. It is asked about what is selected on that page, as if typed into the map's question box.
+   */
+  askFromChat(question: string, mapId?: string | null): { mapId: string; question: string; selected: string[] };
+  /** The map whose page last connected or reported its selection, and when. */
+  lastSeen(): { mapId: string; at: number } | null;
+  /** Whether a map is being made or a question answered right now. */
+  working(): boolean;
   close(): Promise<void>;
 };
 
@@ -101,6 +122,13 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
   };
   const clients = new Set<WebSocket>();
   let port = 0;
+  const page: PageAgent = o.page ?? { name: 'Claude', asks: 'page' };
+  const busy = `${page.name} is still working on this map. Try again when it finishes.`;
+  const selections = new Map<string, PageSelection>();
+  let seen: { mapId: string; at: number } | null = null;
+  const sawPage = (mapId: string) => {
+    seen = { mapId, at: Date.now() };
+  };
 
   // ---------------------------------------------------------------- stopping
   let closing: Promise<void> | null = null;
@@ -147,7 +175,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     broadcast({ type: 'job', mapId: id, job: 'make', status: 'started', question: q });
     void (async () => {
       try {
-        const r = await makeMap({ root, question: q, agent, model: o.model, onProgress: progress(id, 'make') });
+        const r = await makeMap({ root, question: q, agent, model: o.model, agentName: page.name, onProgress: progress(id, 'make') });
         const now = new Date().toISOString();
         const stored: StoredMap = {
           meta: { id, question: q, createdAt: now, updatedAt: now, commit: headCommit(root), makerSession: r.sessionId, explainerSession: null, cost: r.cost, parent },
@@ -169,7 +197,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
   function startAsk(mapId: string, question: string, selection: Selection, opts: { wordsOnly?: boolean } = {}) {
     const stored = store.get(mapId);
     if (!stored) throw new HttpError(404, 'No such map.');
-    if (jobs.has(mapId)) throw new HttpError(409, 'Claude is still working on this map. Try again when it finishes.');
+    if (jobs.has(mapId)) throw new HttpError(409, busy);
     const q = question.trim();
     if (!q) throw new HttpError(400, 'Ask a question.');
     jobs.set(mapId, { kind: 'ask', question: q, progress: [] });
@@ -206,6 +234,27 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     })();
   }
 
+  function askFromChat(question: string, named?: string | null) {
+    const mapId = named ?? seen?.mapId ?? null;
+    const stored = mapId ? store.get(mapId) : null;
+    if (!mapId || !stored) throw new HttpError(404, named ? `There is no map "${named}" in this repo.` : 'No illuminate map has been open in the browser yet.');
+    const got = selections.get(mapId);
+    const selection = got?.selection ?? {};
+    const map = stored.map;
+    const name = (id: string): string => {
+      const node = map.nodes.find((n) => n.id === id);
+      if (node) return node.name;
+      const edge = map.edges.find((e) => e.id === id);
+      if (edge) return `${name(edge.from)} → ${name(edge.to)}`;
+      return map.absences.find((a) => a.id === id)?.claim ?? id;
+    };
+    const picked = [...(selection.nodes ?? []), ...(selection.edges ?? []), ...(selection.absences ?? [])];
+    // Like the page's own box: a walkthrough stop on screen, with nothing picked, is what the question is about.
+    const q = got?.step && !picked.length && question.trim() ? askAboutStep(got.step, question.trim()) : question;
+    startAsk(mapId, q, selection);
+    return { mapId, question: q.trim(), selected: picked.map(name) };
+  }
+
   /**
    * Their answer to "this looks like a different part of the app": `map` starts a new map for the question (linked back
    * to this one), `words` answers it from the code without drawing anything here.
@@ -215,7 +264,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     const stored = store.get(mapId);
     const a = stored?.answers?.find((x) => x.id === answerId);
     if (!stored || !a?.offer || a.offer.status !== 'pending') throw new HttpError(404, 'No such question waiting for a choice.');
-    if (choice === 'words' && jobs.has(mapId)) throw new HttpError(409, 'Claude is still working on this map. Try again when it finishes.');
+    if (choice === 'words' && jobs.has(mapId)) throw new HttpError(409, busy);
     const newId = choice === 'map' ? startMap(a.offer.question, { mapId, question: stored.map.question }) : null;
     const updated: Answer = { ...a, offer: { ...a.offer, status: choice === 'map' ? 'mapped' : 'answered', mapId: newId } };
     store.save({ ...stored, answers: (stored.answers ?? []).map((x) => (x.id === answerId ? updated : x)) });
@@ -228,7 +277,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     const stored = store.get(mapId);
     const proposal = stored && pending(stored, fixId);
     if (!stored || !proposal) throw new HttpError(404, 'No such fix waiting for approval.');
-    if (jobs.has(mapId)) throw new HttpError(409, 'Claude is still working on this map. Try again when it finishes.');
+    if (jobs.has(mapId)) throw new HttpError(409, busy);
     const r = applyFix(root, proposal);
     if (!r.ok) {
       broadcast({ type: 'fix', mapId, fixId, status: 'failed', problems: r.problems });
@@ -308,7 +357,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
     const m = req.method ?? 'GET';
     if (parts[0] === 'stop' && parts.length === 1 && m === 'POST') {
-      if (jobs.size) throw new HttpError(409, 'Claude is still working on a map. Stop illuminate once it finishes, so the map gets saved.');
+      if (jobs.size) throw new HttpError(409, `${page.name} is still working on a map. Stop illuminate once it finishes, so the map gets saved.`);
       res.on('finish', () => void stopSelf('requested'));
       return json(res, 200, { ok: true });
     }
@@ -328,7 +377,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     if (!mapId) {
       if (m === 'GET') {
         const active = [...jobs].filter(([, j]) => j.kind === 'make').map(([id, j]) => ({ id, question: j.question }));
-        return json(res, 200, { repo: path.basename(root), maps: store.list(), making: active });
+        return json(res, 200, { repo: path.basename(root), maps: store.list(), making: active, agent: page });
       }
       if (m === 'POST') {
         const body = await readBody(req);
@@ -344,7 +393,7 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
         if (job || failures.has(mapId)) return json(res, 200, { meta: null, map: null, report: null, job, failure: failures.get(mapId) ?? null, answers: [] });
         throw new HttpError(404, 'No such map.');
       }
-      return json(res, 200, { ...stored, report: check(stored.map, root), job, failure: null, answers: stored.answers ?? [], fixes: fixStates(stored) });
+      return json(res, 200, { ...stored, report: check(stored.map, root), job, failure: null, answers: stored.answers ?? [], fixes: fixStates(stored), agent: page });
     }
     // The code behind a box or arrow, or behind the notes on an answer: read and checked now, never stored.
     if (mapId && parts[2] === 'code' && parts.length === 3 && m === 'GET') {
@@ -361,6 +410,15 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     if (mapId && parts[2] === 'answers' && parts[3] && parts[4] === 'offer' && m === 'POST') {
       const body = await readBody(req);
       return json(res, 200, takeOffer(mapId, parts[3], body.choice === 'map' ? 'map' : body.choice === 'words' ? 'words' : null));
+    }
+    // What is selected on a map's page, so a question asked in the agent's chat is about it. Memory only.
+    if (mapId && parts[2] === 'selection' && parts.length === 3 && m === 'PUT') {
+      if (!store.get(mapId)) throw new HttpError(404, 'No such map.');
+      const body = await readBody(req);
+      const step = typeof body.step === 'string' && body.step.trim() ? body.step.trim().slice(0, 200) : null;
+      selections.set(mapId, { selection: asSelection(body.selection), step, at: Date.now() });
+      sawPage(mapId);
+      return json(res, 200, { ok: true });
     }
     if (mapId && parts[2] === 'ask' && m === 'POST') {
       const body = await readBody(req);
@@ -441,8 +499,11 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
       socket.destroy();
       return;
     }
+    // A map's page names its map when it connects, so the agent's chat knows which map is open.
+    const onMap = url.searchParams.get('m');
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (closing) return ws.close(STOPPED_CLOSE_CODE, 'illuminate stopped');
+      if (onMap && /^[a-z0-9-]{1,80}$/.test(onMap) && store.get(onMap)) sawPage(onMap);
       clients.add(ws);
       visited = true;
       armIdle();
@@ -453,15 +514,24 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     });
   });
 
+  // A port that is taken moves on to the next few (so the page's address, and a browser's permission for it, stays
+  // as steady as it can), then to any free one.
   await new Promise<void>((resolve, reject) => {
+    let tries = 0;
     const onError = (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE' && o.port) {
+        tries++;
+        server.listen(tries <= 10 ? o.port + tries : 0, '127.0.0.1');
+      } else {
         server.off('error', onError);
-        server.listen(0, '127.0.0.1', () => resolve());
-      } else reject(err);
+        reject(err);
+      }
     };
     server.on('error', onError);
-    server.listen(o.port ?? 0, '127.0.0.1', () => resolve());
+    server.listen(o.port ?? 0, '127.0.0.1', () => {
+      server.off('error', onError);
+      resolve();
+    });
   });
   port = (server.address() as { port: number }).port;
   const url = `http://127.0.0.1:${port}`;
@@ -492,6 +562,9 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
     token,
     pageUrl: (mapId?: string) => `${url}/${mapId ? `m/${mapId}` : ''}?t=${token}`,
     startMap,
+    askFromChat,
+    lastSeen: () => seen,
+    working: () => jobs.size > 0,
     close,
   };
 }

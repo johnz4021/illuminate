@@ -79,10 +79,13 @@ export async function checkForUpdate(o: UpdateCheckOptions = {}): Promise<Newer 
 export type InstalledVia = 'plugin' | 'mcp' | 'cli';
 
 /** What Claude is told (in the channel) or what the terminal shows (the CLI). */
-export function updateMessage(n: Newer, via: InstalledVia): string {
+export function updateMessage(n: Newer, via: InstalledVia, agent: 'claude-code' | 'codex' = 'claude-code'): string {
   const out = `A newer illuminate is out (${n.latest}; this is ${n.current}).`;
   if (via === 'cli') return `${out} Update with: npm install -g ${PACKAGE}`;
   const tell = 'Mention it to the person in one sentence after what you tell them about the map.';
+  if (agent === 'codex') {
+    return `${out} ${tell} How to update depends on how they added illuminate to Codex; the README's Codex section says how. Don't change their setup yourself.`;
+  }
   if (via === 'mcp') {
     return `${out} ${tell} They added illuminate with \`claude mcp add\`: restarting Claude Code gets the new version if that command uses \`@johnz4021/illuminate@latest\`; otherwise point them at the README's setup without the plugin. Don't change their setup yourself.`;
   }
