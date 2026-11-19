@@ -336,10 +336,6 @@ export function Selected({ mapId, map, report, ids, onClose, onExpand }: { mapId
     <Card eyebrow={what} title={nameOf(map, id)} tone={gap ? 'dead' : undefined} className="card-selected">
       {close}
       {node?.explain?.concept && <Markdown text={node.explain.concept} className="depth-text" />}
-      {/* Asks for the steps this box hides, drawn on the map: what the map grows for (DRAW_OR_SAY in prompts.ts). */}
-      {node && !node.proposed && onExpand && (
-        <button className="link-btn small expand-btn" onClick={() => onExpand(node.name)}>Show what’s inside on the map</button>
-      )}
       {node && screenOf(report, node.id) && <ScreenView show={screenOf(report, node.id)!} name={node.name} />}
       {proposal && (
         <div className={cls('proposal-note', `proposal-note-${proposal.state}`)}>
@@ -373,22 +369,40 @@ export function Selected({ mapId, map, report, ids, onClose, onExpand }: { mapId
       {c && c.status === 'unconfirmed' && <div className="warn small">Couldn't confirm against the code: {c.reasons.join('; ')}</div>}
       {evidence.length > 0 && (
         <div className="basis">
-          <div className="code-toggle">
-            <div className="eyebrow">{change?.kind === 'removed' ? `In the code as it was at ${since}` : 'In the code'}</div>
-            <button className="link-btn small" onClick={() => setCodeShown(!codeShown)}>{codeShown ? 'Hide the code' : 'Show the code'}</button>
-          </div>
+          <div className="eyebrow">{change?.kind === 'removed' ? `In the code as it was at ${since}` : 'In the code'}</div>
           <div className="chips">
             {evidence.map((e, i) => {
               const ok = evidenceChecks[i]?.ok ?? false;
               const line = evidenceChecks[i]?.foundAt ?? e.line;
-              // A line the checker found can be jumped to in the code below; one it didn't find has nowhere to go.
+              // A cited line is the switch for the code: click it to open the code at that line, click it again to
+              // close it. A line the checker didn't find has nowhere to go.
+              const at = `${e.file}:${line}`;
+              const open = codeShown && (jump?.at === at || (!jump && evidence.length === 1));
               return ok
-                ? <button key={i} className="chip cite" title="Show this line in the code" onClick={() => { setCodeShown(true); setJump((j) => ({ at: `${e.file}:${line}`, n: (j?.n ?? 0) + 1 })); }}><span className="tick">✓</span>{e.file}:{line}</button>
+                ? (
+                  <button
+                    key={i}
+                    className={cls('chip cite', open && 'chip-open')}
+                    aria-pressed={open}
+                    title={open ? 'Hide the code' : 'Show the code at this line'}
+                    onClick={() => {
+                      if (open) { setCodeShown(false); setJump(null); return; }
+                      setCodeShown(true);
+                      setJump((j) => ({ at, n: (j?.n ?? 0) + 1 }));
+                    }}
+                  >
+                    <span className="tick">✓</span>{e.file}:{line}
+                  </button>
+                )
                 : <span key={i} className="chip static chip-unconfirmed"><span className="qmark">?</span>{e.file}:{line}</span>;
             })}
           </div>
           {codeShown && (node || edge) && <ItemCode mapId={mapId} itemId={id} change={change?.kind ?? null} since={since} stamp={report} jump={jump} />}
         </div>
+      )}
+      {/* Asks for the steps this box hides, drawn on the map: what the map grows for (DRAW_OR_SAY in prompts.ts). */}
+      {node && !node.proposed && onExpand && (
+        <button className="btn expand-btn" onClick={() => onExpand(node.name)}>Expand on the map</button>
       )}
     </Card>
   );

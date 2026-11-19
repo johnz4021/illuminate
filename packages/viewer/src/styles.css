@@ -529,3 +529,5 @@ body.resizing-bubble { cursor: nwse-resize; user-select: none; }
 .quiet .badge-change { background: transparent; padding: 0; font-weight: 500; }
 .key-swatch.key-quiet { background: var(--surface); border-color: var(--ink); box-shadow: inset 4px 0 0 var(--changed); }
 .expand-btn { justify-self: start; }
+/* The cited line whose code is open: clicking it again closes the code. */
+.chip.cite.chip-open { background: var(--lamp-soft); border-color: var(--lamp); }
