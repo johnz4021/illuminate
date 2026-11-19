@@ -1,4 +1,4 @@
-# illuminate
+# <img src="docs/images/logo.svg" alt="" width="34" align="center"> illuminate
 
 Ask Claude Code how your code works and get a map you can point at. Claude reads the repo and draws the answer as
 boxes and arrows in your browser. A plain program then checks every box and arrow against the real code before you see

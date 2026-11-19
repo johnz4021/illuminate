@@ -1,6 +1,6 @@
 {
   "name": "@johnz4021/illuminate",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Checked, interactive maps of how your code works, drawn by your own Claude Code session.",
   "license": "MIT",
   "type": "module",
