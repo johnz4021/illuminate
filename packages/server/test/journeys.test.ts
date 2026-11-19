@@ -26,6 +26,16 @@ function itemProps(schema: unknown, list: 'nodes' | 'edges'): string[] {
   return found;
 }
 
+describe('pages on a journey', () => {
+  it('tells Claude a page is one state of a screen, so a wireframe never shows states that are never on screen together', () => {
+    const prompt = makerPrompt('What does someone go through when they make a map?', '');
+    expect(prompt).toContain('A page is what the person sees at one moment');
+    expect(prompt).toContain('each state they see is its own page');
+    expect(prompt).toContain('Never put things that are never on screen together in one page');
+    expect(prompt).not.toContain('Define each page once');
+  });
+});
+
 describe('a journey with branches', () => {
   it('tells Claude what the main path is and how to name a branch', () => {
     const p = makerPrompt('What does a patient go through?', '(head start)');

@@ -7,7 +7,6 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type PointerEven
 import { useReactFlow, useStore } from '@xyflow/react';
 import { store, stored } from './code';
 import { Selected } from './panel';
-import { screenOf } from './screen';
 import type { Sel } from './state';
 import type { CheckReport, CodeMap } from './types';
 
@@ -150,12 +149,10 @@ export function SelectionBubble({ mapId, map, report, selection, onClose }: {
   }, [key, transform, size]);
 
   if (!ids.length) return null;
-  const single = ids.length === 1 ? ids[0]! : null;
-  const wide = !!single && screenOf(report, single)?.kind === 'wireframe';
   return (
     <div
       ref={ref}
-      className={`box-bubble box-bubble-${place?.side ?? 'right'}${wide ? ' box-bubble-wide' : ''}`}
+      className={`box-bubble box-bubble-${place?.side ?? 'right'}`}
       style={{
         ...(place ? { left: place.left, top: place.top, '--bubble-max': `${place.maxHeight}px` } : { visibility: 'hidden', left: 0, top: 0 }),
         ...(chosen ? { width: chosen.w, '--bubble-cap': `${chosen.h}px` } : {}),

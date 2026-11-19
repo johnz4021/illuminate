@@ -200,8 +200,9 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   names its file and a few elements), and a box shows its page with its own region and element marked. `checkPage`
   confirms each region's file is the page's file or one it imports (however many steps) and that every element's
   text is in that file; a region that fails is left off. Which slot a region is in can't be checked, so the drawing
-  says the layout is approximate. Nothing has to be running for a wireframe. It is drawn at its natural size: a box's
-  bubble widens while one shows (`.box-bubble-wide`), and its styles are in `viewer/src/wireframe.css`. The
+  says the layout is approximate. Nothing has to be running for a wireframe. In a box's bubble it is laid out at a
+  page's width and scaled to fit, like a thumbnail (`FitWireframe` in `screen.tsx`; dragging the bubble wider grows it
+  up to full size), and its styles are in `viewer/src/wireframe.css`. The
   walkthrough bubble shows no pictures: the boxes it lights up carry theirs. The other kinds: `capture` (a screenshot
   illuminate took itself with the installed Chrome, headless, clean profile, only of localhost pages or HTML files in
   the repo; saved with a record under `.illuminate/screens/`), `image` (a repo image the cited code names) and `sketch`

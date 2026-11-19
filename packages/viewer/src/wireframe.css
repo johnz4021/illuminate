@@ -1,6 +1,10 @@
-/* A wireframe: a page as regions in five fixed places, with the part a box is about marked. It is drawn at its natural
-   size; a box's bubble widens to give it the shape of a page (.box-bubble-wide in styles.css). The walkthrough
-   bubble shows no picture. The element styles (.sk, .sk-button, …) are the sketch's, in styles.css. */
+/* A wireframe: a page as regions in five fixed places, with the part a box is about marked. In a box's bubble it is laid
+   out at a page's width and scaled to fit (.wf-fit, FitWireframe in screen.tsx), like a thumbnail of the page. The
+   walkthrough bubble shows no picture. The element styles (.sk, .sk-button, …) are the sketch's, in styles.css. */
+/* `zoom` (not a transform) so the scaled page takes up only its scaled height. */
+/* Its width comes from the card, never from the page inside it (contain), so the scale can be worked out from it. */
+.wf-fit { width: 100%; min-width: 0; overflow: hidden; contain: inline-size; }
+.wf-fit-page { max-width: none; }
 .wf { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--paper); color: var(--ink); min-height: 200px; }
 .wf-mid { display: grid; gap: 6px; flex: 1; min-height: 0; }
 .wf-slot { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }

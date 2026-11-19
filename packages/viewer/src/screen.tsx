@@ -1,7 +1,7 @@
 // What the person sees at a box: a screenshot illuminate took (with the thing the box is about marked), an image file
 // from the repo, a wireframe of the whole page with the box's part of it marked, or a rough sketch of one component's
 // visible parts. Only screens the checker confirmed get here.
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { screenUrl } from './api';
 import type { CheckReport, ScreenShow } from './types';
 
@@ -78,7 +78,7 @@ export function ScreenView({ show, name }: { show: ScreenShow; name: string }) {
   if (show.kind === 'wireframe') {
     return (
       <figure className="screen">
-        <div role="img" aria-label={`Wireframe of ${show.page.name}, the page at “${name}”`}><Wireframe show={show} /></div>
+        <div role="img" aria-label={`Wireframe of ${show.page.name}, the page at “${name}”`}><FitWireframe show={show} /></div>
         <figcaption className="muted small">Wireframe of {show.page.name}, from {show.page.file}. Where things sit is approximate; it isn’t a screenshot.</figcaption>
       </figure>
     );
@@ -141,6 +141,33 @@ export function ScreenThumb({ show, name }: { show: ScreenShow; name: string }) 
         loading="lazy"
         style={box ? { transform: 'scale(1.8)', transformOrigin: `${pct(box.x + box.w / 2)} ${pct(box.y + box.h / 2)}` } : undefined}
       />
+    </div>
+  );
+}
+
+/** The width a wireframe is laid out at, the shape of a page; it's then scaled to fit where it's shown. */
+const WIREFRAME_W = 560;
+
+/**
+ * A wireframe laid out at a page's width and scaled down to fit its card, like a thumbnail of the page, rather than
+ * drawn at full size: at full size it dwarfed the map beside it (the map is often zoomed out). Drag the bubble wider
+ * and it grows, up to full size.
+ */
+function FitWireframe({ show }: { show: WireframeShow }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => setScale(Math.min(1, el.clientWidth / WIREFRAME_W));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className="wf-fit">
+      <div className="wf-fit-page" style={{ width: WIREFRAME_W, zoom: scale }}><Wireframe show={show} /></div>
     </div>
   );
 }

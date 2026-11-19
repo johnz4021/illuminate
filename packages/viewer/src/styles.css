@@ -221,7 +221,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 /* ---------- what's selected: a bubble beside the box (bubble.tsx places it) ---------- */
 .box-bubble { position: absolute; z-index: 7; width: 380px; max-width: calc(100% - 24px); }
-.box-bubble-wide { width: 600px; }
 .box-bubble > .card-selected { max-height: min(var(--bubble-cap, 45vh), var(--bubble-max, 45vh)); overflow-y: auto; box-shadow: 0 0 0 3px var(--lamp-glow), var(--shadow); }
 .box-bubble > .card-selected.card-dead { box-shadow: var(--shadow); }
 .box-bubble .card-selected > .eyebrow, .box-bubble .card-selected > .card-title { padding-right: 28px; }
