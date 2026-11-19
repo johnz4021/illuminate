@@ -274,7 +274,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
               <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} />
               {!panel && <ConversationButton state={onPage} dispatch={dispatch} />}
               {selSize(s.selection) > 0 && (
-                <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} />
+                <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} onExpand={inChat || s.job ? undefined : (name) => ask(`What happens inside “${name}”? Show its steps on the map.`)} />
               )}
               {/* A box picked during the walkthrough has the floor until it's closed, or the next stop. */}
               {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={inChat ? undefined : () => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}

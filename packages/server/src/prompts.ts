@@ -207,6 +207,14 @@ function changesContext(report: CheckReport): string[] {
   ];
 }
 
+/**
+ * When an answer should grow the map and when it should be said in words. Decided by what the answer is, not by the
+ * words in the question: a path, the inside of a box, a branch or a connection is drawn; a fact is said.
+ */
+const DRAW_OR_SAY = [
+  '- Draw or say? Decide by what the answer is, not by the words in the question. Draw it (new boxes and arrows) when the answer walks through steps or connections that are not on the map: what happens after or before a step, past where the map stops; what happens inside a box, the steps it hides; a path through the same flow that is not drawn (another case, a failure, a returning user); how two things on the map are connected, the steps between them. Say it in words when it is a fact about something already on the map: a value, a rule, a reason, a definition, a payload, whether something is safe or right.',
+];
+
 const ANSWER_STYLE = [
   '- `concept` is the whole answer, written the way you would answer in a chat: the direct answer first, in one sentence, then only what that sentence leaves out. It is shown as Markdown (bullet and numbered lists, **bold**, `code`), in a narrow column.',
   '- Shape it to the question. A simple question gets a sentence or two. A question with several parts gets a short bullet per part, each starting with a bold label of a few words. Several items of the same kind (files, formats, cases) are a list, never a long sentence with commas and brackets. No headings.',
@@ -253,8 +261,9 @@ export function quickAnswerPrompt(
     otherMaps.length ? otherMaps.map((m) => `- ${m.id}: "${m.question}"`).join('\n') : '(none)',
     '',
     '## First decide how to handle it (`route`)',
-    '- `answer`: the map and the excerpts fully answer it, without guessing about code you can\'t see. Then answer below.',
-    '- `code`: it\'s about what this map shows (the same feature, or something its boxes lead to or come from), but answering needs code that isn\'t shown, or they ask for a change or fix, or a good answer would add boxes or arrows to this map. Say in `missing`, in one sentence, what you would need to look at, and leave the answer fields empty. Someone with the whole repo picks it up from there.',
+    ...DRAW_OR_SAY,
+    '- `answer`: the map and the excerpts fully answer it, without guessing about code you can\'t see, and the answer is said, not drawn (above). Then answer below.',
+    '- `code`: it\'s about what this map shows (the same feature, or something its boxes lead to or come from), but answering needs code that isn\'t shown, or they ask for a change or fix, or the answer is one to draw (above), which only the next step can do. Say in `missing`, in one sentence, what you would need to look at, and leave the answer fields empty. Someone with the whole repo picks it up from there.',
     '- `elsewhere`: it\'s about a different part of the app that this map doesn\'t touch, so adding it here would bolt an unrelated area onto this map. Put in `newQuestion` the question as a new map would ask it (their words, standing on its own), and if one of the other maps above already covers it, that map\'s id in `existingMap`. Leave the answer fields empty. They\'ll be asked whether to make a new map. Only use this when the question really is about something else; when in doubt, use `code`.',
     '',
     '## How to answer (when `route` is `answer`)',
@@ -298,7 +307,8 @@ export function explainerPrompt(
     ...conversationSoFar(earlier),
     '## How to answer',
     ...ANSWER_STYLE,
-    '- If the map doesn\'t cover it, explore. Put what you found in `add` (new areas, nodes, edges or absences with evidence, same rules as the map; ids must be new) only when it belongs to the flow this map follows and seeing it drawn helps answer the question. If the answer is a fact you can say in words, or about something beside the flow, leave `add` empty. Connect new boxes to existing ones with arrows where the code really connects them.',
+    ...DRAW_OR_SAY,
+    '- If the map doesn\'t cover it, explore. When the answer is one to draw, put the steps and connections you found in `add` (new areas, nodes, edges or absences with evidence, same rules as the map; ids must be new), even if you could also say it in words: usually 2 to 6 boxes, connected to the boxes already on the map where the code really connects them. What\'s inside a box goes right after it, between it and the next box. When the answer is a fact to say, or about something beside the flow this map follows, leave `add` empty.',
     '- `moves`: `focus` on the most relevant id; `highlight` the ids that make up the path that answers the question.',
     '- If they ask what a change would look like, how you would do something, or for a plan, without asking you to make it: draw it on the map as proposals (see Proposals). New boxes and arrows go in `add` with `proposed`; for a box or arrow already on the map that would change or go, put `{ "id": "<its id>", "proposed": { "kind": "change" | "remove", "note": "…" } }` in `propose`. Say in the answer what the proposal is; nothing is edited.',
     '- If they ask you to make a change, don\'t edit (you can\'t). Propose a `fix`: illuminate shows it to them on the map, and if they approve, illuminate applies exactly your edits and re-checks the map. So describe it as a proposal waiting for their approval, never as something for them to apply by hand.',

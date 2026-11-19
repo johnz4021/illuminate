@@ -306,7 +306,7 @@ function OfferCard({ answer, busy, agentName, onOffer }: { answer: Answer; busy:
 
 /** What a selected box or arrow is, shown in a bubble beside it on the map (`bubble.tsx`), not in the conversation. */
 // Selecting it already puts it in the question box (a chip there), so the bubble has no ask button of its own.
-export function Selected({ mapId, map, report, ids, onClose }: { mapId: string; map: CodeMap; report: CheckReport | null; ids: string[]; onClose: () => void }) {
+export function Selected({ mapId, map, report, ids, onClose, onExpand }: { mapId: string; map: CodeMap; report: CheckReport | null; ids: string[]; onClose: () => void; onExpand?: (name: string) => void }) {
   const [codeShown, setCodeShown] = useCodeShown();
   const [diffShown, setDiffShown] = useDiffShown();
   const [jump, setJump] = useState<{ at: string; n: number } | null>(null);
@@ -336,6 +336,10 @@ export function Selected({ mapId, map, report, ids, onClose }: { mapId: string; 
     <Card eyebrow={what} title={nameOf(map, id)} tone={gap ? 'dead' : undefined} className="card-selected">
       {close}
       {node?.explain?.concept && <Markdown text={node.explain.concept} className="depth-text" />}
+      {/* Asks for the steps this box hides, drawn on the map: what the map grows for (DRAW_OR_SAY in prompts.ts). */}
+      {node && !node.proposed && onExpand && (
+        <button className="link-btn small expand-btn" onClick={() => onExpand(node.name)}>Show what’s inside on the map</button>
+      )}
       {node && screenOf(report, node.id) && <ScreenView show={screenOf(report, node.id)!} name={node.name} />}
       {proposal && (
         <div className={cls('proposal-note', `proposal-note-${proposal.state}`)}>
