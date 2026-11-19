@@ -65,9 +65,13 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   core types only (`import type`), never their runtime code.
 - The agent skill is `plugin/skills/illuminate/SKILL.md`. The Claude Code plugin is `plugin/` (its MCP server runs
   `npx -y @johnz4021/illuminate@<version> channel`), listed by `.claude-plugin/marketplace.json` at the repo root.
+  Codex reads the same marketplace and installs `plugin/` from `plugin/.codex-plugin/plugin.json` (`codex plugin
+  marketplace add johnz4021/illuminate`, then `codex plugin add illuminate@illuminate`).
 - Publishing: `npm run release` builds `release/` (server, core and facts bundled by esbuild into one file, plus the
   built viewer; third-party packages stay pinned dependencies). Bump the version in `release/package.json`,
-  `plugin/.claude-plugin/plugin.json` and the `npx` args together, then `cd release && npm publish --access public`.
+  `plugin/.claude-plugin/plugin.json`, `plugin/.codex-plugin/plugin.json` and the `npx` args (in both manifests'
+  servers: `plugin.json` inline for Claude Code, `plugin/.codex-mcp.json` for Codex, which rejects an inline object)
+  together, then `cd release && npm publish --access public`.
 - `@illuminate/facts` was carried over from the hackathon harness (`../Speedhacks-project/packages/core`) with its tests.
   The harness is a separate project; don't import from it or edit it from here.
 - Test fixtures: `packages/facts/test/{alias-repo,fixture-py,fixture-go}` and `packages/core/test/fixtures/care-app`
@@ -135,6 +139,21 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   Claude. The session's own tools are used, so read-only and the secret guard are instructions there, not enforced.
   A session started without `--dangerously-load-development-channels` drops that push without telling anyone, so a
   request nobody picks up says so on the map after 30 s and fails after 5 min (`NOT_PICKED_UP`, `NEVER_PICKED_UP`).
+- **Codex** (`host.ts`; the client names itself `codex-mcp-client` in `initialize`, read with `getClientVersion()`):
+  the same channel, with what differs decided per call. Codex can't background a call or be woken, so there is no
+  `illuminate_listen` (not listed); a question about an open map is asked in the Codex chat and comes in through
+  `illuminate_ask`, which takes the map from the page's URL (else the page that reported last, `lastSeen`), adds what
+  is selected there and starts the same `startAsk` as the map's own box (`askFromChat` in `server.ts`). The page tells
+  the server what is selected and which walkthrough stop is on screen (`PUT /api/maps/<id>/selection`, debounced,
+  memory only) and names its map on the WebSocket (`?m=`). Calls wait at most 40 s (Codex's tool timeout is 60 s by
+  default); `illuminate_next` is how Codex keeps waiting, and how work started on the page gets picked up ("carry on
+  with illuminate"). A request longer than about 28k characters comes in parts (`partsOf`, `illuminate_more`), since
+  Codex cuts tool output at about 10k tokens. No system browser: Codex is told to open the link in its built-in browser
+  (ChatGPT desktop app), and port 4317 is kept when free, then the next ones, so the browser asks once. The page gets
+  `agent: { name, asks: 'chat' }` and its question box says to ask in the Codex chat (`viewer/src/asking.ts`). Tools
+  carry annotations (`destructiveHint: false`, `openWorldHint: false`, `readOnlyHint` only where true) so Codex
+  doesn't ask before each call. One instructions text covers both agents, since it is sent before the client is known.
+  `PREVIEW_AGENT=codex npm run preview` shows the page as in Codex.
 - **Proposals** (`Proposal` in `core/src/format.ts`, `asProposal` in `core/src/check.ts`): asked how something would
   change, Claude draws the code as it is and the change on top (`PROPOSAL_RULES` in `prompts.ts`). An addition is
   `pending` until the facts show its `symbol`, call, request or import, then `done` and simply confirmed; a change or

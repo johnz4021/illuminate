@@ -36,6 +36,17 @@ call it again without mentioning it; if it says illuminate stopped listening, do
 illuminate", call `illuminate_listen`. Don't edit files while working on a request, and keep what you say in the terminal to a
 sentence or two: the map does the explaining. `illuminate_open` opens saved maps.
 
+**In Codex with the illuminate MCP server** (you have `illuminate_map` and `illuminate_ask` tools, and no
+`illuminate_listen`): call `illuminate_map` with the user's question and `repo`, the absolute path of the project. Do
+the requests it hands you and `illuminate_submit` them, as above. A long request comes in parts: read them all with
+`illuminate_more` first. If a result says illuminate is still working, call `illuminate_next`. Give the user the map's
+link, and if you have a built-in browser (the ChatGPT desktop app does), open the link there so the map sits beside the
+chat. Then, whenever the user asks about the map in the chat (a box, an arrow, what they selected, a walkthrough step),
+call `illuminate_ask` with their question and the page's current URL if your browser context shows it. illuminate adds
+what they selected on the page; do the request it returns and submit it. The answer appears on the map, so say a
+sentence or two in the chat. If they say "carry on with illuminate", call `illuminate_next`. Never wait for questions
+from the page: Codex can't be woken that way.
+
 **In Claude Code, when the plugin is installed but you have no `illuminate_map` tool**: illuminate's server didn't
 start. It runs on Node (20.19 or later, started with `npx`), so check that before anything else:
 
@@ -78,6 +89,6 @@ Other commands:
 
 - illuminate reads the code and never changes it, except for a fix the user approves in the map.
 - It never reads secret files (`.env`, keys) and only listens on 127.0.0.1.
-- In Claude Code it uses the session it runs in, so no key. The CLI needs `ANTHROPIC_API_KEY`.
+- In Claude Code and Codex it uses the session it runs in, so no key. The CLI needs `ANTHROPIC_API_KEY`.
 - If `illume` isn't on the PATH, it hasn't been installed. Tell the user to install it from the illuminate repo
   (see its README) instead of guessing another command.

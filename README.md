@@ -1,6 +1,6 @@
 # illuminate
 
-Ask Claude Code how your code works and get a map you can point at. Claude reads the repo and draws the answer as
+Ask Claude Code (or Codex) how your code works and get a map you can point at. Claude reads the repo and draws the answer as
 boxes and arrows in your browser. A plain program then checks every box and arrow against the real code before you see
 it, so the map can't show something that isn't there.
 
@@ -17,7 +17,7 @@ In Claude Code (2.1.275 or later), in any repo:
 ```
 
 Then restart Claude Code. That's all: illuminate uses your own Claude Code session and sign-in, so there is no API key
-to set up. It needs Node 20.19 or later. If Node is missing or too old, ask for a map anyway: Claude checks, offers to
+to set up. It needs Node 20.19 or later. For Codex, see [How it runs in Codex](#how-it-runs-in-codex). If Node is missing or too old, ask for a map anyway: Claude checks, offers to
 install or update it, and tells you what to restart.
 
 ## Updating
@@ -128,6 +128,48 @@ when nothing is listening.
 Differences from the CLI: Claude works with your session's own tools and permissions, so the read-only tools and the
 secret-file guard of the Agent SDK session aren't enforced, only asked for. Everything shown still passes the checker,
 and fixes are still applied by illuminate only after you approve them.
+
+## How it runs in Codex
+
+illuminate works in Codex the same way: your Codex session does the reading and writing, and illuminate checks every
+claim and draws the map. The ChatGPT desktop app is the best place for it, because its built-in browser can show the
+map right beside the chat.
+
+Install it as a plugin:
+
+```
+codex plugin marketplace add johnz4021/illuminate
+codex plugin add illuminate@illuminate
+```
+
+Or add only the server: `codex mcp add illuminate -- npx -y @johnz4021/illuminate@latest channel`. From a checkout of
+this repo: `npm i && npm run build`, then `codex mcp add illuminate -- node "$PWD/packages/server/bin/illuminate.mjs" channel`.
+To update the plugin, refresh its marketplace with `codex plugin marketplace upgrade`; with `@latest`, restart Codex.
+
+Then ask for a map in the chat ("map what happens when a user signs up"). Codex gives you the map's link and opens it
+in the built-in browser if it can; otherwise click the link. The first time, the browser asks whether to open
+`127.0.0.1:4317`. illuminate keeps that port when it's free, so you're asked once. If 4317 is taken, it uses the next
+port and says so.
+
+Ask about the map in the Codex chat, not on the page. Codex can't be woken from the page, so the page's question box
+points to the chat instead. Click a box or arrow first: the page tells illuminate what you selected (or which
+walkthrough step is on screen), and your question in the chat is about that. Codex hands the question to illuminate,
+does the work, and the answer appears on the map. Approving a fix still happens on the page.
+
+In the Codex CLI or IDE extension there's no built-in browser: open the link in your own browser, and in the chat name
+the box you mean (or select it on the page first; that still works).
+
+What's different from Claude Code:
+- Codex has no background tool calls, so nothing listens for questions asked on the page. If you start work from the
+  page (a new map, or "Just answer in words"), the page tells you to say "carry on with illuminate" in the chat.
+- Codex cuts off a tool call after a minute by default (`tool_timeout_sec`), so illuminate's calls return within about 40
+  seconds and Codex picks up where it left off. Long requests come in parts.
+- illuminate's tools say they change nothing outside `.illuminate/` and reach nothing beyond this machine, so Codex
+  doesn't ask before each one.
+- The map's link carries illuminate's access token, so it ends up in your Codex chat history. It only works on your
+  machine, and only while illuminate is running.
+- As in Claude Code, read-only and the secret-file guard are instructions to Codex, not enforced. Everything shown still
+  passes the checker, and fixes are applied only after you approve them.
 
 ## Use it from the command line (API key)
 
