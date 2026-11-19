@@ -1,8 +1,10 @@
 # illuminate
 
-Ask Claude Code (or Codex) how your code works and get a map you can point at. Claude reads the repo and draws the answer as
+Ask Claude Code how your code works and get a map you can point at. Claude reads the repo and draws the answer as
 boxes and arrows in your browser. A plain program then checks every box and arrow against the real code before you see
 it, so the map can't show something that isn't there.
+
+Using Codex? Support is in [preview](#codex-preview): still rough, and best in the ChatGPT desktop app.
 
 ![A map of what happens when a patient converts, with the missing connection marked in red](docs/images/arch.png)
 
@@ -17,7 +19,7 @@ In Claude Code (2.1.275 or later), in any repo:
 ```
 
 Then restart Claude Code. That's all: illuminate uses your own Claude Code session and sign-in, so there is no API key
-to set up. It needs Node 20.19 or later. For Codex, see [How it runs in Codex](#how-it-runs-in-codex). If Node is missing or too old, ask for a map anyway: Claude checks, offers to
+to set up. It needs Node 20.19 or later. If Node is missing or too old, ask for a map anyway: Claude checks, offers to
 install or update it, and tells you what to restart.
 
 ## Updating
@@ -67,11 +69,12 @@ the task counts as changed too.
 
 > Show me the user journey: what does staff go through to convert a patient?
 
-Asked what a person sees or does, Claude draws screens, actions and choices from left to right, with no code on the
-boxes. Each screen can show a wireframe of its page, drawn from the code, with the part the step is about marked.
-Nothing has to be running.
+Asked what a person sees or does, Claude draws screens, actions and choices with no code on the boxes. The main path
+runs left to right on one line, and the other ways through (a note written instead, going back to the lists, no email
+sent) branch off below it, each in its own colour, named in a key. A screen can show a wireframe of its page, drawn
+from the code, with the part the step is about marked. Nothing has to be running.
 
-![A user journey, with a wireframe of the patient page in the walkthrough](docs/images/journey.png)
+![A user journey: the main path across the top, three coloured branches below it](docs/images/journey.png)
 
 ### 4. A change before it's made
 
@@ -129,13 +132,14 @@ Differences from the CLI: Claude works with your session's own tools and permiss
 secret-file guard of the Agent SDK session aren't enforced, only asked for. Everything shown still passes the checker,
 and fixes are still applied by illuminate only after you approve them.
 
-## How it runs in Codex
+## Codex (preview)
 
-illuminate works in Codex the same way: your Codex session does the reading and writing, and illuminate checks every
-claim and draws the map. The ChatGPT desktop app is the best place for it, because its built-in browser can show the
-map right beside the chat.
+illuminate also runs in Codex, as a preview: it works, but it's still rough, and it's best in the ChatGPT desktop app,
+whose built-in browser shows the map beside the chat. If you'd use it in Codex, say so (and what got in the way) on
+[the Codex issue](https://github.com/johnz4021/illuminate/issues/1): that's where it's tracked, and where it'll be announced when it's ready.
 
-Install it as a plugin:
+Your Codex session does the reading and writing, and illuminate checks every claim and draws the map, as in Claude
+Code. Install it as a plugin:
 
 ```
 codex plugin marketplace add johnz4021/illuminate
