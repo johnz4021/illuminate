@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { check, parseMap } from '@illuminate/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBridge, NEVER_PICKED_UP, NOT_PICKED_UP } from '../src/bridge';
-import { createChannel } from '../src/channel';
+import { createChannel, partsOf } from '../src/channel';
+import { CODEX, CODEX_CLIENT } from '../src/host';
 import { MAP_SCHEMA } from '../src/schemas';
 import { CARE_MAP, cleanup, copyCareApp, waitFor } from './helpers';
 
@@ -313,5 +314,122 @@ describe('the channel', () => {
     const r = await call('illuminate_open');
     expect(r.text).toContain('patient-converts  What happens when a patient converts?');
     expect(await call('illuminate_next')).toMatchObject({ text: 'Nothing is waiting right now.' });
+  });
+});
+
+describe('the channel in Codex', () => {
+  let root: string;
+  let client: Client;
+  let channel: ReturnType<typeof createChannel>;
+  const opened: string[] = [];
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+    return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+  };
+  const requestId = (text: string) => /illuminate request (r\d+)/.exec(text)?.[1] ?? '';
+  let mapUrl = '';
+
+  beforeAll(async () => {
+    root = copyCareApp();
+    // Parts kept small, so the map's request comes in several.
+    channel = createChannel({ root: '/', port: 0, open: (u) => opened.push(u), partChars: 6000, checkUpdate: async () => null });
+    client = new Client({ name: CODEX_CLIENT, version: '0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await Promise.all([channel.mcp.connect(b), client.connect(a)]);
+  });
+  afterAll(async () => {
+    await client.close();
+    await channel.close();
+    cleanup();
+  });
+
+  it('gives Codex its tools: no listening, asking from the chat, nothing that needs approval', async () => {
+    expect(client.getInstructions()).toContain('In Codex');
+    expect(client.getInstructions()).toContain('illuminate_ask');
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(['illuminate_map', 'illuminate_next', 'illuminate_submit', 'illuminate_fail', 'illuminate_ask', 'illuminate_more', 'illuminate_screens', 'illuminate_capture', 'illuminate_open']);
+    for (const t of tools) expect(t.annotations).toMatchObject({ destructiveHint: false, openWorldHint: false });
+    expect(tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name)).toEqual(['illuminate_next', 'illuminate_more', 'illuminate_screens']);
+    // Every call returns well inside Codex's tool timeout.
+    expect(CODEX.waitMs).toBeLessThanOrEqual(45_000);
+  });
+
+  it('makes a map without opening a browser, its request in parts, and says to open the link beside the chat', async () => {
+    const first = await call('illuminate_map', { question: 'What happens when a patient converts?', repo: root });
+    expect(opened).toEqual([]);
+    mapUrl = /Give the person this link: (\S+)/.exec(first.text)?.[1] ?? '';
+    expect(mapUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/m\/patient-converts\?t=/);
+    expect(first.text).toContain('built-in browser');
+    const id = requestId(first.text);
+    const total = Number(/part 1 of (\d+)/.exec(first.text)?.[1]);
+    expect(total).toBeGreaterThan(1);
+    const pages = [first.text];
+    for (let i = 2; i <= total; i++) pages.push((await call('illuminate_more', { request_id: id })).text);
+    expect(pages.at(-1)).toContain('This is the last part.');
+    expect(pages.join('\n')).toContain('## Output schema');
+    expect(pages.at(-1)!.trimEnd().endsWith('}')).toBe(true);
+    for (const p of pages.slice(1)) expect(p.length).toBeLessThan(6200);
+    expect((await call('illuminate_more', { request_id: id, part: total + 1 })).isError).toBe(true);
+
+    const done = await call('illuminate_submit', { request_id: id, output: CARE_MAP });
+    expect(done.text).toContain('15 of 15 claims confirmed');
+    expect(done.text).toContain('illuminate_ask');
+    expect(done.text).not.toContain('illuminate_listen');
+    const url = new URL(mapUrl);
+    const page = await (await fetch(`${url.origin}/api/maps/patient-converts`, { headers: { 'x-illuminate-token': url.searchParams.get('t')! } })).json() as { agent: unknown };
+    expect(page.agent).toEqual({ name: 'Codex', asks: 'chat' });
+  });
+
+  it('answers a question asked in the Codex chat about what is selected on the page, in the same turn', async () => {
+    const url = new URL(mapUrl);
+    const res = await fetch(`${url.origin}/api/maps/patient-converts/selection`, {
+      method: 'PUT',
+      headers: { 'x-illuminate-token': url.searchParams.get('t')!, 'content-type': 'application/json' },
+      body: JSON.stringify({ selection: { nodes: ['s4'] } }),
+    });
+    expect(res.status).toBe(200);
+    // No URL given: the map whose page reported last.
+    const req = await call('illuminate_ask', { question: 'Why does no email go out?' });
+    expect(req.text).toContain('Asked on the map "patient-converts" about');
+    expect(req.text).toContain('Answering "Why does no email go out?" from the map');
+    const done = await call('illuminate_submit', { request_id: requestId(req.text), output: { route: 'answer', concept: 'Nothing listens for the announcement.', refs: ['miss'] } });
+    expect(done.text).toContain('is shown on the map');
+    expect(done.text).not.toContain('illuminate_listen');
+    const saved = await (await fetch(`${url.origin}/api/maps/patient-converts`, { headers: { 'x-illuminate-token': url.searchParams.get('t')! } })).json() as { answers: { concept: string; selection: unknown }[] };
+    expect(saved.answers.at(-1)).toMatchObject({ concept: 'Nothing listens for the announcement.', selection: { nodes: ['s4'] } });
+
+    // With the page's URL, the map it names.
+    const again = await call('illuminate_ask', { question: 'And who sends the reminder?', url: mapUrl });
+    expect(again.text).toContain('Asked on the map "patient-converts"');
+    await call('illuminate_fail', { request_id: requestId(again.text), reason: 'test' });
+  });
+
+  it('never listens, and says when nothing is waiting', async () => {
+    expect((await call('illuminate_listen')).isError).toBe(true);
+    // The question given up on above goes on to the code; giving that up too ends it.
+    const next = await call('illuminate_next');
+    expect(next.text).toContain('from the code');
+    await call('illuminate_fail', { request_id: requestId(next.text), reason: 'test' });
+    await waitFor(async () => (await call('illuminate_next')).text === 'Nothing is waiting right now.');
+  });
+
+  it('tells the person to carry on in the chat when work started on the page has nobody to pick it up', async () => {
+    const said: string[] = [];
+    const bridge = createBridge({ announce: () => {}, host: () => CODEX, nudgeMs: 10 });
+    void bridge.agent({ prompt: 'x', schema: MAP_SCHEMA, cwd: '/', onProgress: (p) => said.push(p.text) }).catch(() => {});
+    await waitFor(() => said.length === 2);
+    expect(said).toEqual([CODEX.waiting, CODEX.notPickedUp]);
+    expect(said[1]).toContain('carry on with illuminate');
+    bridge.fail('r1', 'done');
+  });
+});
+
+describe('cutting a request into parts', () => {
+  it('cuts at line ends, and cuts a line only when it is longer than a part', () => {
+    const t = ['a'.repeat(5), 'b'.repeat(5), 'c'.repeat(12), 'd'].join('\n');
+    const parts = partsOf(t, 11);
+    expect(parts).toEqual(['aaaaa\nbbbbb', 'ccccccccccc', 'c\nd']);
+    expect(parts.every((p) => p.length <= 11)).toBe(true);
+    expect(partsOf('short', 100)).toEqual(['short']);
   });
 });

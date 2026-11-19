@@ -29,16 +29,13 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
-  InitializeRequestSchema,
   ListToolsRequestSchema,
-  type InitializeRequest,
-  type InitializeResult,
   type ServerNotification,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createBridge, type Bridge, type BridgeRequest } from './bridge';
 import { openBrowser } from './browser';
 import type { Answer } from './explainer';
-import { CLAUDE_CODE, hostOf, type AgentHost } from './host';
+import { hostOf, type AgentHost } from './host';
 import { capture, listScreens, type Shooter } from './screens';
 import { startServer, type IlluminateServer, type ServerEvent } from './server';
 import { createStore } from './store';
@@ -71,31 +68,24 @@ export type ChannelOptions = {
   checkUpdate?: () => Promise<Newer | null>;
 };
 
+// One text for every client: the instructions are sent before illuminate knows which agent connected, so the parts that
+// differ are said for each (and the tool results, which do know, say the rest).
 export const CHANNEL_INSTRUCTIONS = [
   'illuminate draws checked, interactive maps of how this codebase works, in the person\'s browser. You do the reading and writing; illuminate checks every claim against the code before it shows anything.',
   '- When the person asks how something works across files ("what happens when…", "how does X reach Y", "what did this change do"), what someone sees or goes through in the app (a user journey), or how a change would look before it\'s made ("how would we add…", "plan…"), or asks for a map, diagram or walkthrough, call illuminate_map with their question in their own words.',
   '- A map can hold proposals: boxes and arrows that aren\'t in the code yet, or that would change or go, drawn on top of the code as it is. The request explains how. illuminate works out from the code which proposals are done, so after you build a change you proposed on a map, the person can reopen that map to see it.',
   '- A map can show a change that was made: "what did you just change?", "what did the last commit do?". The request explains how. You draw the code as it is now and name the commit to compare with; illuminate works out from the two versions what is new, different or gone. Use it when the person wants to see what a task changed.',
   '- illuminate gives you work as requests in tool results. Each request says what to do and the JSON to return. Explore the code with Read, Grep and Glob, then call illuminate_submit with the request_id and your output. If the result holds another request, do that one too. If you can\'t finish one, call illuminate_fail.',
+  '- A picture of the screen can ground a map for people who don\'t read code. Use your judgement: when a flow starts from something the person sees (a button, a form, a page) a screen on that box helps; for backend-only questions leave screens out. illuminate_screens lists what this repo can show; illuminate_capture screenshots a page already running on this machine, or an HTML file in the repo, and shows you the result. Look at it before using it: if it shows a login page, an error or the wrong state, don\'t use it. Never start the app yourself to get a screenshot. When nothing is running, a map can still show a wireframe of the page drawn from the code; the request explains how.',
+  '- While working on an illuminate request, don\'t edit files or run commands that change anything, and never read secret files (.env, keys). A fix is only proposed; illuminate applies it after the person approves it on the map.',
+  '- Answers are shown on the map. In the chat or terminal, say at most a sentence or two.',
+  'In Claude Code:',
   '- Once a map is ready or an answer is shown, call illuminate_listen and leave it running. It moves to the background, so the person keeps their terminal. When they ask something on the map it returns with a request: do it, submit it, then call illuminate_listen again. If it returns saying nothing was asked yet, call it again without telling the person. Only one is needed at a time.',
-  '- A picture of the screen can ground a map for people who don\'t read code. Use your judgement: when a flow starts from something the person sees (a button, a form, a page) a screen on that box helps; for backend-only questions leave screens out. illuminate_screens lists what this repo can show; illuminate_capture screenshots a page already running on this machine, or an HTML file in the repo, and shows you the result. Look at it before using it: if it shows a login page, an error or the wrong state, don\'t use it. Never start the app yourself to get a screenshot. When nothing is running, a map can still show a wireframe of the page drawn from the code; the request explains how.',
   '- If an illuminate channel message arrives instead, call illuminate_next to get the request.',
-  '- While working on an illuminate request, don\'t edit files or run commands that change anything, and never read secret files (.env, keys). A fix is only proposed; illuminate applies it after the person approves it on the map.',
-  '- Answers are shown on the map. In the terminal, say at most a sentence or two.',
-].join('\n');
-
-/** What Codex is told instead: no listening; questions about an open map come from its chat through illuminate_ask. */
-export const CODEX_INSTRUCTIONS = [
-  'illuminate draws checked, interactive maps of how this codebase works, as a page on this machine. You do the reading and writing; illuminate checks every claim against the code before it shows anything.',
-  '- When the person asks how something works across files ("what happens when…", "how does X reach Y", "what did this change do"), what someone sees or goes through in the app (a user journey), or how a change would look before it\'s made ("how would we add…", "plan…"), or asks for a map, diagram or walkthrough, call illuminate_map with their question in their own words.',
-  '- A map can hold proposals: boxes and arrows that aren\'t in the code yet, or that would change or go, drawn on top of the code as it is. The request explains how. illuminate works out from the code which proposals are done, so after you build a change you proposed on a map, the person can reopen that map to see it.',
-  '- A map can show a change that was made: "what did you just change?", "what did the last commit do?". The request explains how. You draw the code as it is now and name the commit to compare with; illuminate works out from the two versions what is new, different or gone.',
-  '- illuminate gives you work as requests in tool results. Each request says what to do and the JSON to return. Explore the code by reading and searching files, then call illuminate_submit with the request_id and your output. If the result holds another request, do that one too. A long request comes in parts: read every part with illuminate_more before you start. If a result says illuminate is still working, call illuminate_next. If you can\'t finish a request, call illuminate_fail.',
-  '- The map is a page on this machine (a http://127.0.0.1 link). Give the person the link, and if you have a built-in browser, open it there so the map sits beside this chat. Don\'t open it in another browser.',
-  '- While an illuminate map is open and the person asks about it here in the chat (the map, a box or arrow on it, what they selected, a walkthrough step, why something is the way the map shows), call illuminate_ask with their question in their own words, and the page\'s current URL if you know it. illuminate adds what they have selected on the page. Do the request it returns and submit it, as for a map. The answer is shown on the map; in the chat, say at most a sentence or two.',
-  '- If the person says to carry on with illuminate, or the map page says Codex should pick something up, call illuminate_next.',
-  '- A picture of the screen can ground a map for people who don\'t read code. Use your judgement: when a flow starts from something the person sees (a button, a form, a page) a screen on that box helps; for backend-only questions leave screens out. illuminate_screens lists what this repo can show; illuminate_capture screenshots a page already running on this machine, or an HTML file in the repo, and shows you the result. Look at it before using it: if it shows a login page, an error or the wrong state, don\'t use it. Never start the app yourself to get a screenshot. When nothing is running, a map can still show a wireframe of the page drawn from the code; the request explains how.',
-  '- While working on an illuminate request, don\'t edit files or run commands that change anything, and never read secret files (.env, keys). A fix is only proposed; illuminate applies it after the person approves it on the map.',
+  'In Codex (no illuminate_listen there):',
+  '- Pass `repo`, the absolute path of the project, to illuminate_map and illuminate_open. Give the person the map\'s link, and if you have a built-in browser, open it there so the map sits beside the chat.',
+  '- While a map is open and the person asks about it in the chat (the map, a box or arrow, what they selected, a walkthrough step), call illuminate_ask with their question and the page\'s current URL if you know it. illuminate adds what they selected on the page.',
+  '- A long request comes in parts: read every part with illuminate_more before you start. If a result says illuminate is still working, or the person says to carry on with illuminate, call illuminate_next.',
 ].join('\n');
 
 /**
@@ -298,10 +288,10 @@ const PORT = 4317;
 
 export function createChannel(o: ChannelOptions) {
   const open = o.open ?? openBrowser;
-  /** Who is on the other end. Known once the MCP client has connected (`initialize`); Claude Code until then. */
-  let host: AgentHost = CLAUDE_CODE;
-  const codex = () => host.id === 'codex';
-  const waitMs = () => o.waitMs ?? host.waitMs;
+  /** Who is on the other end, from the client info it sent when it connected (Claude Code until then). */
+  const host = (): AgentHost => hostOf(mcp.getClientVersion());
+  const codex = () => host().id === 'codex';
+  const waitMs = () => o.waitMs ?? host().waitMs;
   const partChars = o.partChars ?? 28_000;
   const heartbeatMs = o.heartbeatMs ?? 30_000;
   const listenMs = o.listenMs ?? 25 * 60_000;
@@ -324,24 +314,15 @@ export function createChannel(o: ChannelOptions) {
     if (updateChecked) return null;
     updateChecked = true;
     const newer = await Promise.race([(o.checkUpdate ?? checkForUpdate)(), new Promise<null>((r) => setTimeout(() => r(null), 1500).unref?.())]);
-    return newer ? updateMessage(newer, o.via ?? 'mcp', host.id) : null;
+    return newer ? updateMessage(newer, o.via ?? 'mcp', host().id) : null;
   };
 
   const mcp = new Server(
     { name: 'illuminate', version: VERSION ?? '0.0.0-dev' },
     { capabilities: { experimental: { 'claude/channel': {} }, tools: {} }, instructions: CHANNEL_INSTRUCTIONS },
   );
-  // The client says who it is in `initialize`, and the instructions go back in the reply to it, so this is where
-  // illuminate learns it is in Codex and answers with Codex's instructions. The SDK's own handler does the rest.
-  const initialize = (mcp as unknown as { _oninitialize(r: InitializeRequest): Promise<InitializeResult> })._oninitialize.bind(mcp);
-  mcp.setRequestHandler(InitializeRequestSchema, async (req) => {
-    host = hostOf(req.params.clientInfo);
-    const result = await initialize(req);
-    return { ...result, instructions: codex() ? CODEX_INSTRUCTIONS : CHANNEL_INSTRUCTIONS };
-  });
-
   const bridge: Bridge = createBridge({
-    host: () => host,
+    host,
     announce: (r) => {
       // Codex drops notifications it doesn't know; the map page tells the person what to say instead.
       if (codex()) return;
@@ -382,7 +363,7 @@ export function createChannel(o: ChannelOptions) {
         root,
         port: o.port ?? PORT,
         agent: bridge.agent,
-        page: host.page,
+        page: host().page,
         // Stop, or closing the last tab, stops the page's server and ends listening. The MCP server itself stays
         // connected, so the next illuminate tool call starts a new page server.
         autoStop: { afterLastTabMs: o.afterLastTabMs ?? 5_000 },
@@ -489,7 +470,7 @@ export function createChannel(o: ChannelOptions) {
     }
   }
 
-  mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolsFor(host).map((t) => ({ ...t })) as never }));
+  mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolsFor(host()).map((t) => ({ ...t })) as never }));
 
   /**
    * The page a question in Codex's chat is about: the server and map its URL names, if it names one of illuminate's;
