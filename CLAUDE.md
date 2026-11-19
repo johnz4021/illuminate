@@ -215,9 +215,9 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   code in its bubble, once "Show the code" is opened: the function it names, or the one its cited line is in (whole when short, the lines around the
   citation when long, plain lines for a language the facts don't parse), with cited lines marked. `codeOf` builds it
   on request (`GET /api/maps/<id>/code?item=`), locating lines with the checker's own `checkEvidence`, and
-  `when=before` reads the commit a map of a change is compared with. Citation chips open the code at their line (and close it again; there's no separate show/hide link). The selected
-  box carries a "+ Expand" tab (`ExpandTab` in `graph.tsx`) that asks for its steps, drawn by the same draw-or-say rule
-  (`DRAW_OR_SAY` in `prompts.ts`) that grows the map for typed questions. And each
+  `when=before` reads the commit a map of a change is compared with. Citation chips open the code at their line (and close it again; there's no separate show/hide link). An answer
+  grows the map when it is more of the flow, a path, a box's insides, a branch or a connection, and is said in words
+  when it is a fact (`DRAW_OR_SAY` in `prompts.ts`, used by both answering steps; there is no expand button). And each
   block links to the person's editor (`vscode://file/…:line`; the choice is kept in localStorage), so illuminate
   never has to be an editor. An answer may carry `notes` (a citation plus a sentence about that line, `RawNote` in
   `schemas.ts`): `checkNotes` keeps the ones whose line is found when the answer comes in, and `codeForNotes` checks
