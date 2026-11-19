@@ -64,5 +64,21 @@ describe('update check', () => {
     expect(plugin).toContain('"Plugin updated"');
     expect(updateMessage(n, 'mcp')).toContain('README');
     expect(updateMessage(n, 'cli')).toBe('A newer illuminate is out (0.5.0; this is 0.4.0). Update with: npm install -g @johnz4021/illuminate');
+    // Codex: no Claude Code commands.
+    const codex = updateMessage(n, 'plugin', 'codex');
+    expect(codex).toContain('README\'s Codex section');
+    expect(codex).not.toContain('claude plugin');
+  });
+
+  it('keeps the Claude Code and Codex plugin manifests on the same version', () => {
+    const json = (p: string) => JSON.parse(readFileSync(new URL(`../../../${p}`, import.meta.url), 'utf8'));
+    const claude = json('plugin/.claude-plugin/plugin.json');
+    const codex = json('plugin/.codex-plugin/plugin.json');
+    const codexMcp = json('plugin/.codex-mcp.json');
+    expect(codex.version).toBe(claude.version);
+    expect(codex.name).toBe(claude.name);
+    // Codex only takes a path here (an object inline makes the manifest invalid there).
+    expect(codex.mcpServers).toBe('./.codex-mcp.json');
+    expect(codexMcp.mcpServers.illuminate.args).toEqual(claude.mcpServers.illuminate.args);
   });
 });
