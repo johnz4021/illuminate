@@ -23,6 +23,7 @@ for (const ws of ['facts', 'core', 'server']) {
   }
 }
 
+const version = JSON.parse(fs.readFileSync(path.join(out, 'package.json'), 'utf8')).version;
 execSync('npm run build', { cwd: root, stdio: 'inherit' });
 fs.rmSync(path.join(out, 'dist'), { recursive: true, force: true });
 fs.rmSync(path.join(out, 'viewer'), { recursive: true, force: true });
@@ -37,6 +38,8 @@ await build({
   external: Object.keys(deps).flatMap((d) => [d, `${d}/*`]),
   // Bundled ESM still meets packages that call require(); give it one.
   banner: { js: "import { createRequire as __illuminateRequire } from 'node:module'; const require = __illuminateRequire(import.meta.url);" },
+  // The version the server reports, and compares with npm's latest to say when an update is out (updates.ts).
+  define: { __ILLUMINATE_VERSION__: JSON.stringify(version) },
   logLevel: 'info',
 });
 

@@ -11,8 +11,9 @@ import { openBrowser } from './browser';
 import { check, initTreeSitterForChecks, parseMap } from './cli-support';
 import { startServer } from './server';
 import { createStore } from './store';
+import { checkForUpdate, updateMessage } from './updates';
 
-type Args = { command: 'map' | 'open' | 'check' | 'list' | 'channel' | 'help'; rest: string[]; repo: string; repoGiven: boolean; port: number; open: boolean; model?: string };
+type Args = { command: 'map' | 'open' | 'check' | 'list' | 'channel' | 'help'; rest: string[]; repo: string; repoGiven: boolean; port: number; open: boolean; model?: string; via?: 'plugin' };
 
 function parseArgs(argv: string[]): Args {
   const flags: Record<string, string | boolean> = {};
@@ -34,6 +35,8 @@ function parseArgs(argv: string[]): Args {
     port: Number(flags.port ?? 4317),
     open: flags.open !== false,
     model: typeof flags.model === 'string' ? flags.model : undefined,
+    // The plugin starts the channel with `--via plugin`, so an update is suggested the plugin's way.
+    via: flags.via === 'plugin' ? 'plugin' : undefined,
   };
 }
 
@@ -53,7 +56,7 @@ async function main() {
   if (args.command === 'help') {
     // Started by an MCP client without `channel` (stdin is a pipe): say so where its logs show it, not on stdout.
     if (!process.stdin.isTTY && !process.argv.slice(2).length) {
-      console.error('illume was started with no command. To run it as a Claude Code channel, add `channel`:\n  claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate channel');
+      console.error('illume was started with no command. To run it as a Claude Code channel, add `channel`:\n  claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate@latest channel');
       process.exitCode = 1;
       return;
     }
@@ -61,7 +64,7 @@ async function main() {
   }
   if (args.command === 'channel') {
     const { runChannel } = await import('./channel');
-    return runChannel({ root: args.repoGiven ? args.repo : undefined, port: args.port });
+    return runChannel({ root: args.repoGiven ? args.repo : undefined, port: args.port, via: args.via ?? 'mcp' });
   }
   if (!fs.existsSync(args.repo)) throw new Error(`No such folder: ${args.repo}`);
 
@@ -91,6 +94,8 @@ async function main() {
     return;
   }
 
+  // Asked now, said after the link (if npm answers in time): a newer version is out.
+  const update = checkForUpdate();
   const server = await startServer({
     root: args.repo,
     port: args.port,
@@ -113,6 +118,8 @@ async function main() {
   console.log(`\n  ${url}\n`);
   console.log(`${args.open ? 'Opening it in your browser.' : 'Open that link to see the map.'} Stops when you close the tab, or Ctrl+C.`);
   if (args.open) openBrowser(url);
+  const newer = await Promise.race([update, new Promise<null>((r) => setTimeout(() => r(null), 1500).unref?.())]);
+  if (newer) console.error(`\n${updateMessage(newer, 'cli')}`);
   const stop = () => void server.close().then(() => process.exit(0));
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

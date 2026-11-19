@@ -24,6 +24,7 @@ import { openBrowser } from './browser';
 import { capture, listScreens, type Shooter } from './screens';
 import { startServer, type IlluminateServer, type ServerEvent } from './server';
 import { createStore } from './store';
+import { VERSION, checkForUpdate, updateMessage, type InstalledVia, type Newer } from './updates';
 
 export type ChannelOptions = {
   /** The repo maps are about unless a tool call names another (Claude Code passes CLAUDE_PROJECT_DIR). */
@@ -44,6 +45,10 @@ export type ChannelOptions = {
   afterLastTabMs?: number;
   /** Port for the local server (default 4317, or the next free one). */
   port?: number;
+  /** How illuminate was installed (the plugin passes `--via plugin`), which decides how an update is suggested. */
+  via?: InstalledVia;
+  /** Whether a newer version is out (default: ask npm, at most once a day; tests pass a stand-in). */
+  checkUpdate?: () => Promise<Newer | null>;
 };
 
 export const CHANNEL_INSTRUCTIONS = [
@@ -66,7 +71,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'The person\'s question, in their own words.' },
+        question: { type: 'string', maxLength: 300, description: 'The person\'s question, in their own words (300 characters at most).' },
         repo: { type: 'string', description: 'The repo root, if not the project Claude Code was started in.' },
       },
       required: ['question'],
@@ -171,9 +176,17 @@ export function createChannel(o: ChannelOptions) {
   /** Listeners for "something finished", so a waiting tool call can say so. */
   const finished = new Set<(message: string) => void>();
   const lastReport = new Map<string, { confirmed: number; claims: number; hidden: string[] }>();
+  // A newer version is mentioned once, with the first map of the session, if the check answers within a moment.
+  let updateChecked = false;
+  const updateNote = async (): Promise<string | null> => {
+    if (updateChecked) return null;
+    updateChecked = true;
+    const newer = await Promise.race([(o.checkUpdate ?? checkForUpdate)(), new Promise<null>((r) => setTimeout(() => r(null), 1500).unref?.())]);
+    return newer ? updateMessage(newer, o.via ?? 'mcp') : null;
+  };
 
   const mcp = new Server(
-    { name: 'illuminate', version: '0.1.0' },
+    { name: 'illuminate', version: VERSION ?? '0.0.0-dev' },
     { capabilities: { experimental: { 'claude/channel': {} }, tools: {} }, instructions: CHANNEL_INSTRUCTIONS },
   );
 
@@ -302,8 +315,15 @@ export function createChannel(o: ChannelOptions) {
           const next = whatNext(extra);
           const url = server.pageUrl(id);
           open(url);
-          const first = await next;
-          return { ...first, content: [{ type: 'text', text: `The map is opening in the browser: ${url}\nTell the person, and give them the link in case the tab didn't appear.\n` }, ...first.content] };
+          const [first, update] = await Promise.all([next, updateNote()]);
+          return {
+            ...first,
+            content: [
+              { type: 'text', text: `The map is opening in the browser: ${url}\nTell the person, and give them the link in case the tab didn't appear.\n` },
+              ...first.content,
+              ...(update ? [{ type: 'text' as const, text: update }] : []),
+            ],
+          };
         }
         case 'illuminate_listen': {
           if (!servers.size) return text(CLOSED);

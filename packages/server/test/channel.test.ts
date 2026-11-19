@@ -187,6 +187,24 @@ describe('the channel', () => {
     expect(saved.answers.at(-1)?.concept).toBe('It starts when a patient converts.');
   });
 
+  it('mentions a newer version once, with the first map, the way the plugin updates', async () => {
+    const own = createChannel({ root, port: 0, open: () => {}, waitMs: 200, via: 'plugin', checkUpdate: async () => ({ current: '0.4.0', latest: '0.5.0' }) });
+    const c = new Client({ name: 'claude-code-stand-in', version: '0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await Promise.all([own.mcp.connect(b), c.connect(a)]);
+    const textOf = (r: unknown) => (r as { content: { text: string }[] }).content.map((x) => x.text).join('\n');
+    try {
+      const first = textOf(await c.callTool({ name: 'illuminate_map', arguments: { question: 'What happens when a patient converts?' } }));
+      expect(first).toContain('A newer illuminate is out (0.5.0; this is 0.4.0).');
+      expect(first).toContain('claude plugin update illuminate@illuminate');
+      const second = textOf(await c.callTool({ name: 'illuminate_map', arguments: { question: 'Where is the email sent?' } }));
+      expect(second).not.toContain('A newer illuminate is out');
+    } finally {
+      await c.close();
+      await own.close();
+    }
+  });
+
   it('returns from a quiet listening call before Claude Code drops it, and stops after enough quiet ones', async () => {
     const quietChannel = createChannel({ root, port: 0, open: () => {}, listenMs: 20, quietListens: 3 });
     const quietClient = new Client({ name: 'claude-code-stand-in', version: '0' });

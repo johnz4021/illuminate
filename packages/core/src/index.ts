@@ -23,6 +23,7 @@ export {
   type MapEdge,
   type MapNode,
   type ParseResult,
+  QUESTION_MAX,
 } from './format';
 export { addToMap, freshId, mapIds, patchMap, removeAbsences, removeFromMap, slugify, type MapAdditions, type MapPatch } from './edit';
 export { commitInfo, createBaseReader, lineDiff, resolveCommit, type BaseReader } from './base';

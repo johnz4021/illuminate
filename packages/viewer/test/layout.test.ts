@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseMap } from '@illuminate/core';
-import { layoutKey, layoutMap, rowOf, sides } from '../src/layout';
+import { hasBranches, layoutKey, layoutMap, rowOf, sides, type Box } from '../src/layout';
 
 const map = (() => {
   const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('../../core/test/fixtures/care-app.map.json', import.meta.url)), 'utf8')));
@@ -73,12 +73,27 @@ describe('layoutMap', () => {
   });
 });
 
+const branched = (() => {
+  const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('../../core/test/fixtures/care-app.journey.json', import.meta.url)), 'utf8')));
+  if (!r.ok) throw new Error(r.problems.join('\n'));
+  return r.map;
+})();
+
 describe('layoutMap on a journey', () => {
-  const journey = (() => {
-    const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('../../core/test/fixtures/care-app.journey.json', import.meta.url)), 'utf8')));
-    if (!r.ok) throw new Error(r.problems.join('\n'));
-    return r.map;
-  })();
+  // The journey as it was drawn before branches: the main path alone.
+  const journey = {
+    ...branched,
+    nodes: branched.nodes.filter((n) => !n.branch),
+    edges: branched.edges.filter((e) => !e.branch),
+    tour: branched.tour.filter((t) => !(t.focus.nodes ?? []).some((id) => branched.nodes.find((n) => n.id === id)?.branch)),
+  };
+
+  it('lays a journey with no branches out as before: no paths of its own for the arrows, no key', async () => {
+    expect(hasBranches(journey)).toBe(false);
+    const l = await layoutMap(journey);
+    expect(l.routes).toBeUndefined();
+    expect(l.branches).toBeUndefined();
+  });
 
   it('lays the boxes out in one line, left to right, with no area boxes', async () => {
     const l = await layoutMap(journey);
@@ -133,5 +148,86 @@ describe('layoutMap on a journey', () => {
     const l = await layoutMap(loop);
     const rank = (id: string) => rowOf(l, id) * 100_000 + l.nodes[id]!.x; // reading order: row, then column
     for (let i = 1; i < ids.length; i++) expect(rank(ids[i - 1]!)).toBeLessThan(rank(ids[i]!));
+  });
+});
+
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const middle = (b: Box) => b.y + b.h / 2;
+
+describe('layoutMap on a journey with branches', () => {
+  it('puts the main path on one straight line, in order, and each branch below the step it leaves from', async () => {
+    const l = await layoutMap(branched);
+    const { j1, j2, j3, j4, j5, j6 } = l.nodes as Record<string, Box>;
+    expect(new Set([j1, j2, j3].map((b) => middle(b!))).size).toBe(1);
+    expect(j1!.x).toBeLessThan(j2!.x);
+    expect(j2!.x).toBeLessThan(j3!.x);
+    const line = Math.max(...[j1, j2, j3].map((b) => b!.y + b!.h));
+    for (const b of [j4, j5, j6]) expect(b!.y).toBeGreaterThan(line);
+    // A branch starts between the step it leaves from and the next one.
+    for (const b of [j4, j5]) expect(middle(b!) > 0 && b!.x + b!.w / 2 > j1!.x + j1!.w / 2 && b!.x + b!.w / 2 < j2!.x + j2!.w / 2).toBe(true);
+    expect(j6!.x + j6!.w / 2).toBeGreaterThan(j2!.x + j2!.w / 2);
+    // Two branches leave the patient page: the one that comes back to it goes below the one that doesn't.
+    expect(j4!.y).toBeGreaterThan(j5!.y + j5!.h);
+    // Branches that don't overlap share a line.
+    expect(middle(j5!)).toBe(middle(j6!));
+  });
+
+  it('gives every arrow a path from one box to the other, and colours in the order branches leave the main path', async () => {
+    const l = await layoutMap(branched);
+    expect(l.branches).toEqual(['Writes a note instead', 'Goes back to the lists', 'No welcome rule']);
+    for (const e of branched.edges) {
+      const r = l.routes?.[`e:${e.id}`];
+      expect(r, e.id).toBeDefined();
+      const [first, last] = [r!.points[0]!, r!.points.at(-1)!];
+      const touches = (b: Box, [x, y]: [number, number]) => x >= b.x - 1 && x <= b.x + b.w + 1 && y >= b.y - 1 && y <= b.y + b.h + 1;
+      expect(touches(l.nodes[e.from]!, first), e.id).toBe(true);
+      expect(touches(l.nodes[e.to]!, last), e.id).toBe(true);
+    }
+    // The arrow back to the patient page comes up beside the ones going down from it, not on top of them.
+    const xs = ['jc', 'jd', 'je'].map((id) => l.routes![`e:${id}`]!.points[id === 'jd' ? 3 : 0]![0]);
+    expect(new Set(xs).size).toBe(3);
+  });
+
+  it('never wraps the main path, and stacks branches from the same and nearby steps without overlapping', async () => {
+    const base = branched.nodes[1]!;
+    const step = (id: string, branch?: string) => ({ ...base, id, ...(branch ? { branch } : {}) });
+    const arrow = (id: string, from: string, to: string, branch?: string) => ({ ...branched.edges[0]!, id, from, to, ...(branch ? { branch } : {}) });
+    const ids = Array.from({ length: 10 }, (_, i) => `m${i}`);
+    const long = {
+      ...branched,
+      nodes: [...ids.map((id) => step(id)), step('a1', 'A'), step('a2', 'A'), step('b1', 'B'), step('c1', 'C'), step('d1', 'D'), step('d2', 'D')],
+      edges: [
+        ...ids.slice(1).map((id, i) => arrow(`me${i}`, ids[i]!, id)),
+        arrow('xa', 'm2', 'a1', 'A'), arrow('xa2', 'a1', 'a2'), arrow('ya', 'a2', 'm5', 'A'), // comes back further along
+        arrow('xb', 'm2', 'b1', 'B'), // ends on its own
+        arrow('xc', 'm3', 'c1', 'C'), arrow('yc', 'c1', 'm1', 'C'), // goes back
+        arrow('xd', 'c1', 'd1', 'D'), arrow('xd2', 'd1', 'd2', 'D'), // leaves from a branch
+        arrow('back', 'm8', 'm0'), // back along the main path
+      ],
+      tour: [],
+    };
+    const l = await layoutMap(long);
+    expect(l.width).toBeGreaterThan(1900);
+    expect(new Set(ids.map((id) => middle(l.nodes[id]!))).size).toBe(1);
+    for (let i = 1; i < ids.length; i++) expect(l.nodes[ids[i]!]!.x).toBeGreaterThan(l.nodes[ids[i - 1]!]!.x);
+    const boxes = Object.entries(l.nodes);
+    for (const [i, [a, A]] of boxes.entries()) for (const [b, B] of boxes.slice(i + 1)) expect(overlaps(A, B), `${a} and ${b}`).toBe(false);
+    expect(l.nodes.b1!.y).toBeGreaterThan(l.nodes.a1!.y); // of two from the same step, the one that comes back is nearer
+    expect(l.nodes.d1!.y).toBeGreaterThan(l.nodes.c1!.y); // a branch off a branch goes below it
+    // The arrow back along the main path runs above it.
+    expect(Math.min(...l.routes!['e:back']!.points.map((p) => p[1]))).toBeLessThan(Math.min(...ids.map((id) => l.nodes[id]!.y)));
+    // No upright stretch of an arrow runs through a box it doesn't start or end at.
+    for (const e of long.edges) {
+      const pts = l.routes![`e:${e.id}`]!.points;
+      for (let i = 1; i < pts.length; i++) {
+        const [[x1, y1], [x2, y2]] = [pts[i - 1]!, pts[i]!];
+        if (x1 !== x2) continue;
+        for (const [id, b] of boxes) {
+          if (id === e.from || id === e.to) continue;
+          expect(x1 > b.x && x1 < b.x + b.w && Math.min(y1, y2) < b.y + b.h && Math.max(y1, y2) > b.y, `${e.id} through ${id}`).toBe(false);
+        }
+      }
+    }
+    expect(layoutKey({ ...long, nodes: long.nodes.map((n) => (n.id === 'b1' ? { ...n, branch: 'A' } : n)) })).not.toBe(layoutKey(long));
   });
 });

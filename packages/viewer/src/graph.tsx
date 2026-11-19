@@ -20,7 +20,7 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
-import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout } from './layout';
+import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout, type Route } from './layout';
 import type { Sel, View } from './state';
 import { ScreenThumb, WIREFRAME_BUBBLE_W } from './screen';
 import type { CheckReport, CodeMap, FixProposal, ScreenShow } from './types';
@@ -50,7 +50,7 @@ type StepData = {
   /** In the Before or After view a changed box is marked quietly (an edge and a small badge), and says which side this is. */
   quiet: 'before' | 'after' | null;
   /** Set on a journey map: the box is drawn as part of a user flow, with no code on it. */
-  journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null };
+  journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null; branch: Branch | null };
   onClick: (additive: boolean) => void;
 };
 type Proposed = { kind: 'add' | 'change' | 'remove'; state: 'pending' | 'done' };
@@ -108,6 +108,26 @@ function ChangeKey({ commit, when, onWhen }: { commit: string; when: When; onWhe
     </div>
   );
 }
+/**
+ * The branches of a journey, each in its own colour. Five colours, given out in the order the branches leave the main
+ * path, so the same journey is coloured the same way every time. None is yellow (lit), red (missing or removed), green
+ * (added), amber (changed) or violet (proposed). A sixth branch starts the colours again.
+ */
+const BRANCH_COLOURS = 5;
+/** A branch's name and which of the colours it has (1 to `BRANCH_COLOURS`). */
+type Branch = { name: string; colour: number };
+const branchClass = (b: Branch | null | undefined) => b && `branch branch-${b.colour}`;
+
+/** The key to a journey with branches: the main path, and each branch in its colour. */
+function BranchKey({ branches }: { branches: readonly Branch[] }) {
+  return (
+    <div className="change-key branch-key">
+      <span className="change-key-title">Ways through</span>
+      <span className="key-item" title="What most people do, start to finish"><i className="key-swatch" />Main path</span>
+      {branches.map((b) => <span key={b.name} className="key-item"><i className={cls('key-swatch', branchClass(b))} />{b.name}</span>)}
+    </div>
+  );
+}
 type AreaData = { label: string; note: string | null; dim: boolean };
 type LinkData = {
   label: string;
@@ -116,6 +136,10 @@ type LinkData = {
   variant: 'edge' | 'absence' | 'ghost';
   /** On a wrapped journey, an arrow between rows runs along the gap between them, at this height. */
   wrapY?: number;
+  /** On a journey with branches, the path the layout worked out for it. */
+  route?: Route;
+  /** On a journey with branches: the branch this arrow is on, drawn in its colour (none on the main path). */
+  branch?: Branch | null;
   proposal?: Proposed | null;
   change?: Change | null;
   ghost?: Ghost | null;
@@ -193,7 +217,7 @@ function JourneyNode({ data }: { data: StepData }) {
   const p = data.proposal;
   return (
     <div
-      className={cls('step', 'jstep', 'nopan', `j-${j.shape}`, j.show && 'j-pictured', j.outside && 'j-outside', !data.confirmed && 'unconfirmed', proposalClass(p), changeClass(data.change), data.quiet && 'quiet', data.ghost && 'ghost', data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
+      className={cls('step', 'jstep', 'nopan', `j-${j.shape}`, j.show && 'j-pictured', j.outside && 'j-outside', !data.confirmed && 'unconfirmed', proposalClass(p), changeClass(data.change), data.quiet && 'quiet', data.ghost && 'ghost', branchClass(j.branch), data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
       style={{ width: j.w, height: j.h }}
       onClick={(e) => {
         e.stopPropagation();
@@ -242,8 +266,11 @@ function bentPath(sx: number, sy: number, tx: number, ty: number, offset: number
   return [`M ${sx} ${sy} Q ${cx} ${cy} ${tx} ${ty}`, (sx + tx) / 2 + nx * offset, (sy + ty) / 2 + ny * offset];
 }
 
-/** A path through these points with rounded corners, and the middle of its longest level stretch for the label. */
-function cornered(points: [number, number][], r = 18): [string, number, number] {
+/**
+ * A path through these points with rounded corners, and where its label goes: the middle of segment `at` when given,
+ * otherwise of its longest level stretch.
+ */
+function cornered(points: [number, number][], r = 18, at?: number): [string, number, number] {
   let d = `M ${points[0]![0]} ${points[0]![1]}`;
   for (let i = 1; i < points.length - 1; i++) {
     const [px, py] = points[i - 1]!;
@@ -256,6 +283,8 @@ function cornered(points: [number, number][], r = 18): [string, number, number] 
   }
   const last = points[points.length - 1]!;
   d += ` L ${last[0]} ${last[1]}`;
+  const [p, q] = at !== undefined ? [points[at], points[at + 1]] : [];
+  if (p && q) return [d, (p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
   let best: [number, number, number] = [0, points[0]![0], points[0]![1]];
   for (let i = 1; i < points.length; i++) {
     const [px, py] = points[i - 1]!;
@@ -266,7 +295,9 @@ function cornered(points: [number, number][], r = 18): [string, number, number] 
 }
 
 function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, data }: EdgeProps<LinkEdgeT>) {
-  const [path, lx, ly] = data?.wrapY !== undefined && sourcePosition === Position.Right
+  const [path, lx, ly] = data?.route
+    ? cornered(data.route.points, 18, data.route.label)
+    : data?.wrapY !== undefined && sourcePosition === Position.Right
     // Back up to an earlier row: out of the side, up to the gap between the rows, along it, and in from below.
     ? cornered([[sourceX, sourceY], [sourceX + 30, sourceY], [sourceX + 30, data.wrapY], [targetX, data.wrapY], [targetX, targetY]])
     : data?.wrapY !== undefined
@@ -281,7 +312,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
       <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={18} />
       <EdgeLabelRenderer>
         <div
-          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.ghost && 'ghost', data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
+          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.ghost && 'ghost', branchClass(data.branch), data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
           data-id={id}
           style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
           onClick={(e) => {
@@ -364,7 +395,11 @@ export function MapGraph(p: GraphProps) {
 
   useEffect(() => {
     let live = true;
-    void layoutMap(p.map, extra, new Set(p.added), new Set(pictured)).then((l) => live && setLayout({ key, layout: l }));
+    // A layout that fails keeps the last one on screen and says why in the console, rather than failing silently.
+    void layoutMap(p.map, extra, new Set(p.added), new Set(pictured)).then(
+      (l) => live && setLayout({ key, layout: l }),
+      (err: unknown) => console.error('illuminate: the map could not be laid out', err),
+    );
     return () => {
       live = false;
     };
@@ -375,6 +410,22 @@ export function MapGraph(p: GraphProps) {
   const hl = p.view?.highlight.length ? new Set(p.view.highlight) : null;
   const lit = useMemo(() => (hl ? new Set(nodesOf(p.map, [...hl])) : null), [hl, p.map]);
   const sel = p.selection;
+
+  // A journey with branches: each branch's colour, in the order the layout gave them out.
+  const branches = useMemo((): Branch[] => (layout?.layout.branches ?? []).map((name, i) => ({ name, colour: (i % BRANCH_COLOURS) + 1 })), [layout]);
+  const branchNamed = (name: string | null | undefined): Branch | null => (name ? branches.find((b) => b.name === name) ?? null : null);
+  /**
+   * The colour a box or arrow is drawn in, unless something it means matters more: a proposal, a change, a shadow, or a
+   * claim the checker couldn't confirm keeps its own look. An arrow with no branch of its own takes the branch of a box
+   * at its end, so the way into a branch and back out of it are drawn in its colour too.
+   */
+  const branchFor = (kind: 'node' | 'edge', id: string, plain: boolean): Branch | null => {
+    if (!branches.length || !plain) return null;
+    if (kind === 'node') return branchNamed(p.map.nodes.find((n) => n.id === id)?.branch);
+    const e = p.map.edges.find((x) => x.id === id);
+    const end = (nid: string | undefined) => p.map.nodes.find((n) => n.id === nid)?.branch;
+    return branchNamed(e?.branch ?? end(e?.to) ?? end(e?.from));
+  };
 
   const nodes = useMemo((): (StepNodeT | AreaNodeT)[] => {
     if (!layout) return [];
@@ -394,13 +445,15 @@ export function MapGraph(p: GraphProps) {
         zIndex: 0,
       }];
     });
-    // On a journey, the first box of each stage (the one furthest left) carries the stage's name.
+    // On a journey, the first box of each stage (the one furthest left) carries the stage's name: the first on the main
+    // path when it has branches, so the names read along the main line.
     const stageAt = new Map<string, string>();
     if (l.flat) {
+      const off = (n: { branch?: string }) => (l.branches && n.branch ? 1 : 0);
       for (const a of p.map.areas) {
         const first = p.map.nodes
           .filter((n) => n.area === a.id && l.nodes[n.id])
-          .sort((x, y) => l.nodes[x.id]!.x - l.nodes[y.id]!.x || l.nodes[x.id]!.y - l.nodes[y.id]!.y)[0];
+          .sort((x, y) => off(x) - off(y) || l.nodes[x.id]!.x - l.nodes[y.id]!.x || l.nodes[x.id]!.y - l.nodes[y.id]!.y)[0];
         if (first) stageAt.set(first.id, a.label);
       }
     }
@@ -430,7 +483,7 @@ export function MapGraph(p: GraphProps) {
           changeSize: changeSize(p.report?.nodes[n.id]?.change?.diff),
           ghost: ghostOf(n.id),
           quiet: view === 'both' ? null : view,
-          ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null } }),
+          ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null, branch: branchFor('node', n.id, !!p.report && p.report.nodes[n.id]?.status !== 'unconfirmed' && !p.report.nodes[n.id]?.proposal && !drawnAs(p.report.nodes[n.id]?.change?.kind ?? null) && !ghostOf(n.id)) } }),
           onClick: (additive) => p.onSelect('nodes', n.id, additive),
         },
         draggable: false,
@@ -438,7 +491,7 @@ export function MapGraph(p: GraphProps) {
       }];
     });
     return [...areaNodes, ...stepNodes];
-  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured, view]);
+  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured, view, branches]);
 
   const edges = useMemo((): LinkEdgeT[] => {
     if (!layout) return [];
@@ -469,18 +522,21 @@ export function MapGraph(p: GraphProps) {
       const shadow = ghostOf(e.id) ?? ghostOf(e.from) ?? ghostOf(e.to);
       const isHl = on(e.id) || (!!lit && lit.has(e.from) && lit.has(e.to) && !hl);
       const variant = 'edge' as const;
+      const branch = branchFor('edge', e.id, !proposal && !change && !shadow);
       return {
         id: `e:${e.id}`,
         source: e.from,
         target: e.to,
         ...handles(e.from, e.to),
         type: 'link' as const,
-        className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), changeClass(change), shadow && 'ghost', on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
-        markerEnd: marker(shadow ? 'var(--line)' : proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : change === 'added' ? 'var(--ok)' : change === 'removed' ? 'var(--dead)' : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
+        className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), changeClass(change), shadow && 'ghost', branchClass(branch), on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
+        markerEnd: marker(shadow ? 'var(--line)' : proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : change === 'added' ? 'var(--ok)' : change === 'removed' ? 'var(--dead)' : branch ? `var(--branch-${branch.colour})` : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
         zIndex: 2,
         data: {
           label: e.label,
           wrapY: wrapY(e.from, e.to),
+          route: layout.layout.routes?.[`e:${e.id}`],
+          branch,
           variant,
           proposal,
           change,
@@ -512,6 +568,7 @@ export function MapGraph(p: GraphProps) {
         zIndex: 2,
         data: {
           label: shortClaim(a.claim),
+          route: layout.layout.routes?.[`a:${a.id}`],
           variant: 'absence',
           confirmed,
           hl: on(a.id),
@@ -531,7 +588,7 @@ export function MapGraph(p: GraphProps) {
         className: 'link link-ghost',
         markerEnd: marker('var(--ok)'),
         zIndex: 3,
-        data: { label: `+ ${ghost.connects.label}`, variant: 'ghost', confirmed: true, hl: true, dim: false, selected: false },
+        data: { label: `+ ${ghost.connects.label}`, route: layout.layout.routes?.[`x:${ghost.id}`], variant: 'ghost', confirmed: true, hl: true, dim: false, selected: false },
       });
     }
     // Arrows that join the same two steps (either way round) bend apart, so each line and label stays visible.
@@ -541,13 +598,14 @@ export function MapGraph(p: GraphProps) {
       byPair.set(key, [...(byPair.get(key) ?? []), e]);
     }
     for (const group of byPair.values()) {
-      if (group.length < 2) continue;
+      // A routed arrow (a journey with branches) already has a path of its own.
+      if (group.length < 2 || group.some((e) => e.data?.route)) continue;
       group.forEach((e, i) => {
         if (e.data) e.data.offset = (i - (group.length - 1) / 2) * 44;
       });
     }
     return out;
-  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view]);
+  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view, branches]);
 
   // When the map area changes width (the panel comes and goes, or is dragged wider), keep what was in the middle in
   // the middle, rather than letting the panel slide over the right-hand side of the map.
@@ -584,10 +642,17 @@ export function MapGraph(p: GraphProps) {
       }
       const duration = firstFit.current ? 0 : 650;
       firstFit.current = false;
-      // Keep clear of the dock along the bottom.
+      // Keep clear of the dock along the bottom. On a journey with branches, arrows can run above the top boxes and below
+      // the bottom ones, and the camera only knows about boxes, so it leaves that much more room.
+      const boxes = Object.values(layout.layout.nodes);
+      const points = Object.values(layout.layout.routes ?? {}).flatMap((r) => r.points);
+      const over = Math.max(0, Math.min(0, ...boxes.map((b) => b.y)) - Math.min(0, ...points.map((q) => q[1])));
+      const under = Math.max(0, Math.max(0, ...points.map((q) => q[1])) - Math.max(0, ...boxes.map((b) => b.y + b.h)) + (points.length ? 16 : 0));
+      const keyRoom = layout.layout.branches?.length ? 56 : 0;
       const padding = ids.length
-        ? ({ top: '60px', left: p.touring ? (p.tourWide ? TOUR_ROOM_WIDE : TOUR_ROOM) : '60px', right: '60px', bottom: '150px' } as const)
-        : ({ top: '64px', left: '32px', right: '32px', bottom: '130px' } as const); // top: the earlier-questions button
+        ? ({ top: `${60 + keyRoom}px`, left: p.touring ? (p.tourWide ? TOUR_ROOM_WIDE : TOUR_ROOM) : '60px', right: '60px', bottom: '150px' } as const)
+        // top: the earlier-questions button, and on a journey with branches its key (and the stage names under it).
+        : ({ top: `${64 + over + keyRoom}px`, left: '32px', right: '32px', bottom: `${130 + under}px` } as const);
       void rf.fitView(ids.length ? { nodes: ids.map((n) => ({ id: n })), duration, padding, maxZoom: 1.15 } : { duration, padding, maxZoom: 1.1 });
     };
     handle = requestAnimationFrame(tick);
@@ -618,7 +683,15 @@ export function MapGraph(p: GraphProps) {
       maxZoom={2}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1.3} />
-      {p.report?.since?.commit && <Panel position="top-left"><ChangeKey commit={p.report.since.commit.slice(0, 7)} when={view} onWhen={setWhen} /></Panel>}
+      {(p.report?.since?.commit || branches.length > 0) && (
+        // One panel for both keys, so they stack instead of covering each other.
+        <Panel position="top-left">
+          <div className="map-keys">
+            {p.report?.since?.commit && <ChangeKey commit={p.report.since.commit.slice(0, 7)} when={view} onWhen={setWhen} />}
+            {branches.length > 0 && <BranchKey branches={branches} />}
+          </div>
+        </Panel>
+      )}
     </ReactFlow>
   );
 }

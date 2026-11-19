@@ -151,7 +151,16 @@ describe('safety', () => {
 describe('a journey map', () => {
   it('is checked like any other: every screen, action and arrow against the code', () => {
     const report = check(load(JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/care-app.journey.json', import.meta.url)), 'utf8'))), APP);
-    expect(report.summary).toMatchObject({ claims: 5, confirmed: 5, unconfirmed: 0 });
+    expect(report.summary).toMatchObject({ claims: 12, confirmed: 12, unconfirmed: 0 });
     expect(report.screens?.j1?.status).toBe('confirmed');
+  });
+
+  it('leaves branches alone: they say how to draw the map, not anything about the code', () => {
+    const raw = JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/care-app.journey.json', import.meta.url)), 'utf8'));
+    const map = load(raw);
+    const plain = load({ ...raw, nodes: raw.nodes.map(({ branch: _, ...n }: any) => n), edges: raw.edges.map(({ branch: _, ...e }: any) => e) });
+    expect(map.nodes.filter((n) => n.branch).map((n) => n.id)).toEqual(['j4', 'j5', 'j6']);
+    expect(check(map, APP)).toEqual(check(plain, APP));
+    expect(map.edges.find((e) => e.id === 'jd')?.branch).toBe('Writes a note instead'); // check() doesn't touch the map
   });
 });

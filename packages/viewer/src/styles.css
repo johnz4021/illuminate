@@ -188,6 +188,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 .dock-start { height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 12px; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap; display: inline-flex; gap: 8px; align-items: center; }
 .dock-start .muted { font-weight: 400; }
 .dock-start:hover { border-color: var(--line-strong); }
+/* Until the walkthrough of this map has been taken once, its button glows softly (a slow halo in the lamp colour),
+   since people who missed it read the map alone and found it harder. Without motion it's a steady halo instead. */
+.dock-start.glow, .dock-start.glow:hover { border-color: var(--lamp); animation: dock-glow 2.8s ease-in-out infinite; }
+@keyframes dock-glow { 0%, 100% { box-shadow: 0 0 0 2px var(--lamp-glow); } 50% { box-shadow: 0 0 0 7px var(--lamp-glow); } }
+@media (prefers-reduced-motion: reduce) { .dock-start.glow, .dock-start.glow:hover { animation: none; box-shadow: 0 0 0 3px var(--lamp-glow); } }
 .dock-ask { width: 420px; }
 /* Reopening the conversation: a button in the map's bottom-right corner while it's closed, on the side the panel
    opens from. Where the map area is too narrow to sit beside the dock, it sits just above it. */

@@ -69,6 +69,13 @@ describe('the illuminate server', () => {
     expect((await api('GET', '/api/maps')).body.maps.map((m: any) => m.id)).toEqual(['patient-converts']);
   });
 
+  it('refuses a question longer than a map can hold, before starting', async () => {
+    const r = await api('POST', '/api/maps', { question: `Why ${'really '.repeat(60)}?` });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('300 or fewer');
+    expect((await api('GET', '/api/maps')).body.making).toEqual([]);
+  });
+
   it('answers a question about a selection', async () => {
     expect((await api('POST', `/api/maps/${mapId}/ask`, { question: 'What does this do?', selection: { nodes: ['s4'] } })).status).toBe(202);
     const a = await waitFor(() => events.find((e) => e.type === 'answer'));

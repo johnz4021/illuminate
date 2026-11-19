@@ -39,7 +39,9 @@ const JOURNEY_RULES = [
   '- Each box and arrow still cites the code that makes it so: the component, the handler, the redirect.',
   '- Show where each step happens: define the pages the journey goes through once, in `pages`, and give each screen box a wireframe of its page with its own part marked (see Screens). Several boxes usually share one page. A box whose page can\'t be drawn usefully (nothing recognisable on it, or it isn\'t in this repo) gets no `screen`: no picture is better than a thin one.',
   '- Where the journey stops short (a button that leads nowhere, a result with no screen, nothing ever telling the person what happened), that is a break: record it as an absence.',
-  '- The walkthrough is told as the person\'s experience too, one stop per screen.',
+  '- One main path, with branches: the main path is what most people do from start to finish, and its boxes and arrows carry no `branch`. It is drawn on one straight line, left to right. Every box and arrow off it carries `"branch"`: a short name for that way through, in the person\'s words ("Saves for later", "Payment fails"), the same name on every box and arrow of it. An arrow that leads from a branch back to the main path carries that branch too. Each branch is drawn below the step it leaves from, in its own colour.',
+  '- A branch leaves from a `choice`, or from any step where things can go another way (an error, a cancel, a link elsewhere). Keep to the branches that matter, at most 5. A journey with only one way through has no branches.',
+  '- The walkthrough is told as the person\'s experience too: down the main path first, one stop per screen, then one stop for each branch.',
 ];
 
 /** Proposals: what the map suggests changing, drawn on top of the code as it is. */
@@ -288,7 +290,7 @@ export function explainerPrompt(
     'You answer questions about a code map for someone semi-technical. You can Read, Grep and Glob the repo; you cannot edit anything.',
     '',
     ...questionContext(map, report, selection, question),
-    ...(map.view === 'journey' ? ['', '## This map is a journey', 'It shows only what a person sees and does. Anything you add must be the same: `kind` is `screen`, `action` or `choice`, and no boxes for what goes on behind the screen. Say that part in words.'] : []),
+    ...(map.view === 'journey' ? ['', '## This map is a journey', 'It shows only what a person sees and does. Anything you add must be the same: `kind` is `screen`, `action` or `choice`, and no boxes for what goes on behind the screen. Say that part in words. A box or arrow you add off the main path carries the `branch` it is on (an existing branch\'s name, or a new short one in the person\'s words); one on the main path carries none.'] : []),
     ...(map.since ? ['', '## This map shows a change', `It compares the code as it is now with commit ${map.since.slice(0, 12)}, and a program marks what is new or different since then. Anything you add is compared the same way, so don't mark it yourself. Only code that was deleted since that commit gets \`"removed": true\`, citing its lines as they were then (an arrow to or from a removed box is removed too).`] : []),
     ...(missing ? ['', `## Why the map alone wasn't enough\n${missing}`] : []),
     '',

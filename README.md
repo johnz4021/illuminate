@@ -20,6 +20,23 @@ Then restart Claude Code. That's all: illuminate uses your own Claude Code sessi
 to set up. It needs Node 20.19 or later. If Node is missing or too old, ask for a map anyway: Claude checks, offers to
 install or update it, and tells you what to restart.
 
+## Updating
+
+Turn on auto-update once, and Claude Code keeps illuminate current by itself: `/plugin`, then **Marketplaces**,
+**illuminate**, **Enable auto-update**. When it fetches a new version it says "Plugin updated"; restart Claude Code to
+use it.
+
+Or update by hand (or ask Claude to run these), then restart Claude Code:
+
+```
+claude plugin marketplace update illuminate
+claude plugin update illuminate@illuminate
+```
+
+When a newer version is out, illuminate mentions it with your first map, at most once a day. To find out, it asks npm
+for the latest version number of `@johnz4021/illuminate` and sends nothing else. Set `ILLUMINATE_NO_UPDATE_CHECK=1` to
+turn that off.
+
 ## What you can ask
 
 Ask in plain words, or start with `/illuminate`. A map opens in your browser after about a minute. The screenshots
@@ -85,7 +102,9 @@ real; it doesn't prove the map covers everything.
 illuminate runs as an MCP server in Claude Code: your session does the reading and writing, and illuminate checks every
 claim and draws the map. Questions you ask on the map go to that same session, and the answers come back to the map.
 
-Without the plugin: `claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate channel`. From a checkout of
+Without the plugin: `claude mcp add --scope user illuminate -- npx -y @johnz4021/illuminate@latest channel` (`@latest`
+makes npx look for the newest version each time Claude Code starts illuminate; without it, npx can keep running the one
+it downloaded first). From a checkout of
 this repo instead (for working on illuminate):
 
 ```

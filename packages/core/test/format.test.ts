@@ -72,7 +72,32 @@ describe('a journey map', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.map.view).toBe('journey');
-    expect(r.map.nodes.map((n) => n.kind)).toEqual(['screen', 'action', 'external']);
+    expect(r.map.nodes.map((n) => n.kind)).toEqual(['screen', 'action', 'external', 'action', 'action', 'external']);
+  });
+
+  it('keeps the branch each box and arrow is on, and leaves the main path without one', () => {
+    const r = parseMap(raw);
+    if (!r.ok) throw new Error(r.problems.join('\n'));
+    expect(r.map.nodes.map((n) => n.branch ?? null)).toEqual([null, null, null, 'Writes a note instead', 'Goes back to the lists', 'No welcome rule']);
+    expect(r.map.edges.find((e) => e.id === 'jd')?.branch).toBe('Writes a note instead');
+    expect(r.map.edges.find((e) => e.id === 'ja')?.branch).toBeUndefined();
+    // Parsing what was parsed gives the same map back.
+    expect(parseMap(JSON.parse(JSON.stringify(r.map)))).toEqual({ ok: true, map: r.map });
+  });
+
+  it('wants a branch named in a few words', () => {
+    const named = (branch: unknown) => parseMap({ ...raw, nodes: raw.nodes.map((n: any) => (n.id === 'j4' ? { ...n, branch } : n)) });
+    expect(named('Saves for later').ok).toBe(true);
+    for (const bad of ['', '   ', 'x'.repeat(61), 3]) expect(named(bad).ok).toBe(false);
+    const long = parseMap({ ...raw, edges: raw.edges.map((e: any) => (e.id === 'jc' ? { ...e, branch: 'y'.repeat(61) } : e)) });
+    expect(long.ok ? [] : long.problems).toEqual([expect.stringMatching(/^edges\.2\.branch: /)]);
+  });
+
+  it('still reads a journey written before branches', () => {
+    const old = { ...raw, nodes: raw.nodes.slice(0, 3).map(({ branch: _, ...n }: any) => n), edges: raw.edges.slice(0, 2), tour: raw.tour.slice(0, 2) };
+    const r = parseMap(old);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect([...r.map.nodes, ...r.map.edges].every((x) => x.branch === undefined)).toBe(true);
   });
 
   it('rejects a view it does not know', () => {

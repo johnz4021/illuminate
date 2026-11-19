@@ -8,7 +8,7 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { capturePaths, check, codeForNotes, codeOf, readCapture, repoImage, type CheckReport, type CodeMap } from '@illuminate/core';
+import { QUESTION_MAX, capturePaths, check, codeForNotes, codeOf, readCapture, repoImage, type CheckReport, type CodeMap } from '@illuminate/core';
 import { sdkAgent, type Agent, type Progress } from './agent';
 import { answer, type Answer, type Selection } from './explainer';
 import { applyFix, connectAfterFix, undoFix, type AppliedFix, type FixProposal } from './fixes';
@@ -140,6 +140,8 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
   function startMap(question: string, parent: MapMeta['parent'] = null): string {
     const q = question.trim();
     if (!q) throw new HttpError(400, 'Ask a question to map.');
+    // A map holds a question of up to QUESTION_MAX characters; a longer one would only fail once the map is drawn.
+    if (q.length > QUESTION_MAX) throw new HttpError(400, `That question is ${q.length} characters long. Ask it in ${QUESTION_MAX} or fewer.`);
     const id = store.newId(q, new Set([...jobs.keys(), ...failures.keys()]));
     jobs.set(id, { kind: 'make', question: q, progress: [] });
     broadcast({ type: 'job', mapId: id, job: 'make', status: 'started', question: q });

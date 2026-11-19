@@ -46,14 +46,15 @@ function Screens() {
 }
 
 /** Every map in this repo, to jump between, with the current one showing. */
-function MapSwitcher({ mapId, question }: { mapId: string; question: string }) {
+function MapSwitcher({ mapId, question, making }: { mapId: string; question: string; making: boolean }) {
   const [maps, setMaps] = useState<{ id: string; question: string; making?: boolean }[]>([]);
   useEffect(() => {
     api.list().then(
       (r) => setMaps([...r.making.map((x) => ({ ...x, making: true })), ...r.maps.map((x) => ({ id: x.id, question: x.question }))]),
       () => {},
     );
-  }, [mapId]);
+    // Asked again when this map finishes, or the list keeps calling it "being made".
+  }, [mapId, making]);
   const list = maps.some((x) => x.id === mapId) ? maps : [{ id: mapId, question }, ...maps];
   return (
     <select className="switcher" value={mapId} onChange={(e) => navigate(pageUrl(e.target.value))} aria-label="Switch to another map" title="Switch to another map in this repo">
@@ -242,7 +243,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         <a className="brand" href={pageUrl()} title="All maps in this repo"><i className="brand-mark" aria-hidden="true" />illuminate</a>
         <div className="topbar-map">
           {s.meta?.parent && <a className="crumb" href={pageUrl(s.meta.parent.mapId)} title={`Back to the map this one came from: ${s.meta.parent.question}`}>← {s.meta.parent.question}</a>}
-          <MapSwitcher mapId={mapId} question={s.map?.question ?? s.job?.question ?? ''} />
+          <MapSwitcher mapId={mapId} question={s.map?.question ?? s.job?.question ?? ''} making={s.job?.kind === 'make'} />
         </div>
         <MapStatus report={s.report} />
         <a className="pill-btn" href={pageUrl()} title="Ask a new question and make a map for it">New map</a>
@@ -260,7 +261,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
               )}
               {/* A box picked during the walkthrough has the floor until it's closed, or the next stop. */}
               {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={() => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}
-              <Dock map={s.map} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>
+              <Dock map={s.map} mapId={mapId} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>
                 {askInPanel ? null : composer}
               </Dock>
             </>

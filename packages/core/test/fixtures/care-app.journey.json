@@ -128,6 +128,58 @@
           "text": "welcome_email"
         }
       ]
+    },
+    {
+      "id": "j4",
+      "area": "page",
+      "kind": "action",
+      "name": "Saves a note",
+      "branch": "Writes a note instead",
+      "symbol": "src/ui/PatientNotes.tsx#PatientNotes",
+      "explain": {
+        "concept": "Staff can keep a note on the patient without converting them."
+      },
+      "evidence": [
+        {
+          "file": "src/ui/PatientNotes.tsx",
+          "line": 7,
+          "text": "Save note"
+        }
+      ]
+    },
+    {
+      "id": "j5",
+      "area": "page",
+      "kind": "action",
+      "name": "Opens the leads list",
+      "branch": "Goes back to the lists",
+      "explain": {
+        "concept": "The links down the side take staff away from this patient."
+      },
+      "evidence": [
+        {
+          "file": "src/ui/PatientSidebar.tsx",
+          "line": 6,
+          "text": "href=\"/leads\""
+        }
+      ]
+    },
+    {
+      "id": "j6",
+      "area": "after",
+      "kind": "external",
+      "name": "No email arrives",
+      "branch": "No welcome rule",
+      "explain": {
+        "concept": "Without a rule that says to send a welcome email, the patient hears nothing."
+      },
+      "evidence": [
+        {
+          "file": "src/automations/evaluate.ts",
+          "line": 6,
+          "text": "rule.action === 'welcome_email'"
+        }
+      ]
     }
   ],
   "edges": [
@@ -156,6 +208,62 @@
           "text": "schedule = '0 2 * * *'"
         }
       ]
+    },
+    {
+      "id": "jc",
+      "from": "j1",
+      "to": "j4",
+      "label": "types a note",
+      "branch": "Writes a note instead",
+      "evidence": [
+        {
+          "file": "src/ui/PatientNotes.tsx",
+          "line": 6,
+          "text": "placeholder=\"Add a note\""
+        }
+      ]
+    },
+    {
+      "id": "jd",
+      "from": "j4",
+      "to": "j1",
+      "label": "stays on the page",
+      "branch": "Writes a note instead",
+      "evidence": [
+        {
+          "file": "src/ui/PatientPage.tsx",
+          "line": 14,
+          "text": "<PatientNotes />"
+        }
+      ]
+    },
+    {
+      "id": "je",
+      "from": "j1",
+      "to": "j5",
+      "label": "clicks Leads",
+      "branch": "Goes back to the lists",
+      "evidence": [
+        {
+          "file": "src/ui/PatientSidebar.tsx",
+          "line": 6,
+          "text": "<a href=\"/leads\">Leads</a>"
+        }
+      ]
+    },
+    {
+      "id": "jf",
+      "from": "j2",
+      "to": "j6",
+      "label": "if no rule says to send one",
+      "branch": "No welcome rule",
+      "evidence": [
+        {
+          "file": "src/automations/evaluate.ts",
+          "line": 5,
+          "text": "trigger: 'converted'"
+        }
+      ]
     }
   ],
   "tour": [
@@ -180,6 +288,46 @@
         ],
         "edges": [
           "jb"
+        ]
+      }
+    },
+    {
+      "id": "t3",
+      "title": "Writing a note instead",
+      "text": "Staff can also keep a note on the patient. Saving it leaves them on the same page, where they can still convert the patient.",
+      "focus": {
+        "nodes": [
+          "j4"
+        ],
+        "edges": [
+          "jc",
+          "jd"
+        ]
+      }
+    },
+    {
+      "id": "t4",
+      "title": "Leaving for the lists",
+      "text": "The links down the side take staff back to the leads, away from this patient.",
+      "focus": {
+        "nodes": [
+          "j5"
+        ],
+        "edges": [
+          "je"
+        ]
+      }
+    },
+    {
+      "id": "t5",
+      "title": "When no rule says to send it",
+      "text": "The email only goes out if a rule for converted patients says to send one. Without it, the patient hears nothing.",
+      "focus": {
+        "nodes": [
+          "j6"
+        ],
+        "edges": [
+          "jf"
         ]
       }
     }

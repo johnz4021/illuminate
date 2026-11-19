@@ -76,6 +76,23 @@ describe('patchMap', () => {
     expect(r).toEqual({ ok: false, problems: [`edge "${MAP.edges[0]!.id}": unknown node "nowhere"`] });
   });
 
+  it('keeps the branches of a journey through additions, patches and removals', () => {
+    const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/care-app.journey.json', import.meta.url)), 'utf8')));
+    if (!r.ok) throw new Error(r.problems.join('\n'));
+    const journey = r.map;
+    const branches = (m: CodeMap) => Object.fromEntries([...m.nodes, ...m.edges].flatMap((x) => (x.branch ? [[x.id, x.branch]] : [])));
+    const added = addToMap(journey, {
+      nodes: [{ id: 'j7', area: 'page', kind: 'action', name: 'Opens settings', branch: 'Goes back to the lists', evidence: [{ file: 'src/ui/PatientSidebar.tsx', line: 7, text: 'Settings' }] }],
+      edges: [{ id: 'jg', from: 'j1', to: 'j7', label: 'clicks Settings', branch: 'Goes back to the lists', evidence: [{ file: 'src/ui/PatientSidebar.tsx', line: 7, text: 'href="/settings"' }] }],
+    });
+    if (!added.ok) throw new Error(added.problems.join('\n'));
+    expect(branches(added.map)).toEqual({ ...branches(journey), j7: 'Goes back to the lists', jg: 'Goes back to the lists' });
+    const patched = patchMap(added.map, { nodes: [{ ...structuredClone(journey.nodes.find((n) => n.id === 'j4')!), name: 'Saves the note' }], remove: ['j5'] });
+    if (!patched.ok) throw new Error(patched.problems.join('\n'));
+    const { j5: _n, je: _e, ...rest } = branches(added.map);
+    expect(branches(patched.map)).toEqual(rest);
+  });
+
   it('changes nothing when there is nothing to change', () => {
     expect(patchMap(MAP, {})).toEqual({ ok: true, map: MAP });
     expect(removeFromMap(MAP, new Set())).toBe(MAP);

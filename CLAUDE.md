@@ -163,7 +163,13 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   choices (`kind`: `screen`, `action`, `choice`), with whatever runs behind a screen folded into one arrow. Every box
   and arrow still cites code and is checked the same. The viewer draws it as a user flow: one line left to right, no
   area boxes (a stage's name sits over its first box), a diamond for a choice, a pill for an action, and no code on
-  the boxes (select one to see it). `npm run preview` returns the journey fixture (`care-app.journey.json`) for a
+  the boxes (select one to see it). A journey is one main path with branches: a box or arrow off the main path names
+  its `branch` in the person's words (none = main path; drawing only, the checker ignores it). With any branch,
+  `layoutBranches` puts the main path on one straight line that never wraps, each branch below the step it leaves
+  from (starting halfway to the next step, so arrows from later steps pass between its boxes), stacked without
+  overlapping, and works out every arrow's path (`routes`). Branches get one of five colours (`journey.css`) in the
+  order they leave the main path, with a key at the top left under the change key. Without branches the old layout
+  is used unchanged. `npm run preview` returns the journey fixture (`care-app.journey.json`, three branches) for a
   question with "journey" or "go through" in it, or set `PREVIEW_QUESTION`.
 - **Screens** (`core/src/screens.ts`, `server/src/screens.ts`, `viewer/src/screen.tsx`): a box may carry an optional
   `screen`, and the model decides when one helps (`SCREEN_RULES` in `prompts.ts`). The usual one is a `wireframe`:
@@ -190,6 +196,13 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   never has to be an editor. An answer may carry `notes` (a citation plus a sentence about that line, `RawNote` in
   `schemas.ts`): `checkNotes` keeps the ones whose line is found when the answer comes in, and `codeForNotes` checks
   them again each time they are shown under the reply. Nothing about code is stored except those notes.
+- **Updates** (`server/src/updates.ts`): the release build stamps the version in (`__ILLUMINATE_VERSION__`); a checkout
+  has none and never checks. Otherwise illuminate asks npm for the latest version at most once a day (cached in
+  `~/.cache/illuminate/`, off with `ILLUMINATE_NO_UPDATE_CHECK` or in CI) and says a newer one at most once a day: the
+  channel adds it to the first `illuminate_map` result for Claude to mention (the plugin starts it with `--via plugin`, so
+  Claude offers the two plugin commands and runs them only if the person says yes), the CLI prints it. It never updates
+  anything itself. Claude Code's own plugin auto-update is off by default for third-party marketplaces; the README says
+  how to turn it on.
 - **Fix** (`fixes.ts`): `proposeFix` records file hashes → `applyFix` writes only if they still match →
   `connectAfterFix` draws the new edge and closes the gaps it fills → `undoFix`.
 - **Serve** (`server.ts`, `store.ts`): maps persist as `<repo>/.illuminate/maps/<id>.json`, with their answers and where

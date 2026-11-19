@@ -98,6 +98,13 @@ export const GitRef = z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9_./~^-]{0,99}$/, 
 
 export const Area = z.object({ id: Id, label: z.string().min(1).max(40) });
 
+/**
+ * On a journey: the way through that this box or arrow is on, when it isn't the main path (what most people do, start
+ * to finish), named in the person's words ("Saves for later", "Payment fails"). No `branch` is the main path. It says
+ * how to draw what is already checked, not something about the code, so the checker leaves it alone.
+ */
+export const Branch = z.string().min(1).max(60).regex(/\S/, 'a branch is named in words');
+
 export const Node = z.object({
   id: Id,
   area: Id,
@@ -112,6 +119,8 @@ export const Node = z.object({
   proposed: Proposal.optional(),
   /** Only on a map with `since`: this code was there at that commit and is gone now. Its `evidence` cites it as it was. */
   removed: z.boolean().optional(),
+  /** On a journey: the branch this box is on (see `Branch`); none for the main path. */
+  branch: Branch.optional(),
 });
 
 export const Edge = z.object({
@@ -125,6 +134,8 @@ export const Edge = z.object({
   proposed: Proposal.optional(),
   /** Only on a map with `since`: this connection was there at that commit and is gone now. Its `evidence` cites it as it was. */
   removed: z.boolean().optional(),
+  /** On a journey: the branch this arrow is on, including the arrow that leads back from it to the main path. */
+  branch: Branch.optional(),
 });
 
 /** A claim that something is missing, proven by a search the checker runs again: `matches` is the count claimed. */
@@ -156,9 +167,12 @@ export const TourStop = z.object({
   ask: z.array(z.string()).optional(),
 });
 
+/** The longest question a map holds. Checked when a map is asked for, so a long one is refused up front. */
+export const QUESTION_MAX = 300;
+
 export const CodeMap = z.object({
   version: z.literal(1),
-  question: z.string().min(1).max(300),
+  question: z.string().min(1).max(QUESTION_MAX),
   /** The commit the map was made from, when known. */
   commit: z.string().nullable().optional(),
   /** `journey`: drawn as a user flow (left to right, shapes by kind, no code on the boxes). The claims are checked the same. */

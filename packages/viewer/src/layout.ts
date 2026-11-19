@@ -18,7 +18,18 @@ export type Layout = {
   flat?: boolean;
   /** A wrapped journey: where each row starts, top to bottom. */
   rowTops?: number[];
+  /** A journey with branches: the path each arrow takes, by link id (`e:`, `a:` or `x:` and its id). */
+  routes?: Record<string, Route>;
+  /** A journey with branches: their names, in the order their colours are given out. */
+  branches?: string[];
 };
+
+export type Point = [number, number];
+/** An arrow drawn through these points; its words sit on the middle of segment `label` (from `points[label]`). */
+export type Route = { points: Point[]; label: number };
+
+/** A journey drawn as one main path with branches below it: any box or arrow on it names a branch. */
+export const hasBranches = (map: CodeMap): boolean => map.view === 'journey' && [...map.nodes, ...map.edges].some((x) => !!x.branch);
 
 /** Which row of a wrapped journey a box is on (0 when it isn't wrapped). */
 export function rowOf(layout: Layout, id: string): number {
@@ -106,7 +117,7 @@ function withoutIds(map: CodeMap, ids: ReadonlySet<string>): CodeMap {
  */
 export async function layoutMap(map: CodeMap, extra: readonly ExtraEdge[] = [], added: ReadonlySet<string> = new Set(), pictured: ReadonlySet<string> = new Set()): Promise<Layout> {
   // A journey is one line of boxes, so anything added is simply laid out with the rest.
-  if (map.view === 'journey') return layoutJourney(map, extra, pictured);
+  if (map.view === 'journey') return hasBranches(map) ? layoutBranches(map, extra, pictured) : layoutJourney(map, extra, pictured);
   const addedNodes = map.nodes.filter((n) => added.has(n.id));
   if (!addedNodes.length) return layoutWhole(map, extra);
 
@@ -223,6 +234,262 @@ async function layoutJourney(map: CodeMap, extra: readonly ExtraEdge[], pictured
   return { areas: {}, nodes, width: widest, height: top - JOURNEY_ROW_GAP, flat: true, rowTops };
 }
 
+/** Between boxes along a line (the main path, or a branch): room for the words on the arrow between them. */
+const LINE_GAP = 176;
+/** Between the main path and the first branch below it, and between one branch and the next. */
+const LANE_GAP = 120;
+/** How far above a branch's boxes the arrow into it runs across, and below them an arrow back. */
+const LANE_RUN = 34;
+/** Between arrows that meet the same side of a box. */
+const PORT = 14;
+/** How far above the main path an arrow that skips along it, or goes back along it, runs. */
+const ARC = 58;
+
+/** Reading order: each box after the boxes that lead to it, in the order they were written; a loop opens where it was written first. */
+function readingOrder(ids: readonly string[], ls: readonly { from: string; to: string }[]): string[] {
+  const into = new Map(ids.map((id) => [id, 0]));
+  for (const l of ls) into.set(l.to, (into.get(l.to) ?? 0) + 1);
+  const left = new Set(ids);
+  const out: string[] = [];
+  while (left.size) {
+    const next = ids.find((id) => left.has(id) && !into.get(id)) ?? ids.find((id) => left.has(id))!;
+    left.delete(next);
+    out.push(next);
+    for (const l of ls) if (l.from === next && left.has(l.to)) into.set(l.to, into.get(l.to)! - 1);
+  }
+  return out;
+}
+
+/**
+ * A journey with branches. The main path (every box with no `branch`) runs along one straight line, left to right, in
+ * reading order, and is never wrapped: a long one is panned along. Each branch is a line of its own below the step it
+ * leaves from, starting halfway to the next step, so the arrows that go down from later steps, and back up to them,
+ * pass between its boxes. Branches that would overlap stack downward; of those leaving the same step, the ones that
+ * come back further along go nearest the main path and the ones that go back to an earlier step furthest from it, so
+ * their arrows don't cross. Every arrow's path is worked out here (`routes`), so it can run around boxes.
+ */
+async function layoutBranches(map: CodeMap, extra: readonly ExtraEdge[], pictured: ReadonlySet<string>): Promise<Layout> {
+  const all = links(map, extra);
+  const size = new Map(map.nodes.map((n) => [n.id, journeySize(n.kind, pictured.has(n.id))]));
+  const branchOf = new Map(map.nodes.map((n) => [n.id, n.branch ?? null]));
+  const order = readingOrder(map.nodes.map((n) => n.id), all);
+  const main = order.filter((id) => !branchOf.get(id));
+  // Every box is on a branch: there is no main path to hang them from, so it is drawn as a journey without branches.
+  if (!main.length) return layoutJourney(map, extra, pictured);
+  const w = (id: string) => size.get(id)!.w;
+  const h = (id: string) => size.get(id)!.h;
+
+  // The main path, on lane 0.
+  const left = new Map<string, number>();
+  const lane = new Map<string, number>();
+  let x = 0;
+  for (const id of main) {
+    left.set(id, x);
+    lane.set(id, 0);
+    x += w(id) + LINE_GAP;
+  }
+  const cx = (id: string) => left.get(id)! + w(id) / 2;
+  const right = (id: string) => left.get(id)! + w(id);
+
+  // Branches, each a line of boxes in reading order, named in the order they are first mentioned.
+  const mention = [...new Set([...map.nodes, ...map.edges].flatMap((x) => (x.branch ? [x.branch] : [])))];
+  const members = new Map<string, string[]>();
+  for (const id of order) {
+    const b = branchOf.get(id);
+    if (b) members.set(b, [...(members.get(b) ?? []), id]);
+  }
+  type Placed = { name: string; lane: number; span: [number, number]; verticals: { x: number; from: number }[]; boxes: string[]; root: number };
+  const placed: Placed[] = [];
+  const rootOf = new Map<string, number>();
+  const pending = new Set(members.keys());
+  const plan = (name: string, force: boolean) => {
+    const ids = members.get(name)!;
+    const inside = new Set(ids);
+    const into = all.filter((l) => inside.has(l.to) && !inside.has(l.from));
+    // Not ready while it is only reached from a branch that isn't placed yet.
+    if (!force && into.length && !into.some((l) => lane.has(l.from))) return null;
+    const anchor = into.filter((l) => lane.has(l.from)).map((l) => l.from).sort((a, b) => lane.get(a)! - lane.get(b)! || cx(a) - cx(b))[0] ?? null;
+    // The first box sits halfway between the step it leaves from and the step after that.
+    const next = anchor && lane.get(anchor) === 0 ? main[main.indexOf(anchor) + 1] : undefined;
+    const first = ids[0]!;
+    const firstMid = anchor ? (next ? (cx(anchor) + cx(next)) / 2 : cx(anchor) + (w(anchor) / 2 + LINE_GAP + w(first) / 2) / 2) : w(first) / 2;
+    const xs: number[] = [];
+    let at = firstMid - w(first) / 2;
+    for (const id of ids) {
+      xs.push(at);
+      at += w(id) + LINE_GAP;
+    }
+    const out = all.filter((l) => inside.has(l.from) && !inside.has(l.to) && lane.has(l.to));
+    const ahead = out.filter((l) => cx(l.to) >= xs[0]!).map((l) => cx(l.to));
+    const back = out.filter((l) => cx(l.to) < xs[0]!).map((l) => cx(l.to));
+    return {
+      name, ids, anchor, xs,
+      /** 0: comes back to the main path further along; 1: ends on its own; 2: goes back to an earlier step. */
+      kind: back.length ? 2 : ahead.length ? 0 : 1,
+      reach: Math.max(0, ...ahead),
+      span: [Math.min(anchor ? cx(anchor) : xs[0]!, ...back) - 30, Math.max(at - LINE_GAP, ...ahead) + 30] as [number, number],
+      /** The arrows that run up or down from it, at what x, and from which lane. */
+      verticals: [...(anchor ? [{ x: cx(anchor), from: lane.get(anchor)! }] : []), ...out.map((l) => ({ x: cx(l.to), from: lane.get(l.to)! }))],
+      minLane: anchor ? lane.get(anchor)! + 1 : 1,
+      root: anchor ? (lane.get(anchor) === 0 ? main.indexOf(anchor) : rootOf.get(branchOf.get(anchor)!) ?? main.length) : main.length,
+    };
+  };
+  while (pending.size) {
+    const ready = [...pending].flatMap((name) => plan(name, false) ?? []);
+    // Branches that lead only into each other, with no way in from what is placed: the first one starts on its own.
+    const p = ready.sort((a, b) => (a.anchor ? cx(a.anchor) : Infinity) - (b.anchor ? cx(b.anchor) : Infinity) || a.kind - b.kind || a.reach - b.reach || mention.indexOf(a.name) - mention.indexOf(b.name))[0]
+      ?? plan(mention.find((n) => pending.has(n)) ?? [...pending][0]!, true)!;
+    pending.delete(p.name);
+    const fits = (k: number) => !placed.some((q) => q.lane === k && q.span[0] < p.span[1] && p.span[0] < q.span[1]);
+    // Its arrows up and down mustn't run through a box on a lane in between, nor its boxes sit across the arrows of a
+    // branch already placed further down.
+    const clear = (k: number) =>
+      p.verticals.every((v) => placed.every((q) => !(q.lane > v.from && q.lane < k) || q.boxes.every((id) => v.x < left.get(id)! - 12 || v.x > right(id) + 12))) &&
+      placed.every((q) => q.lane <= k || q.verticals.every((v) => v.from >= k || p.xs.every((bx, i) => v.x < bx - 12 || v.x > bx + w(p.ids[i]!) + 12)));
+    let k = p.minLane;
+    while (k < p.minLane + 12 && !(fits(k) && clear(k))) k++;
+    if (k >= p.minLane + 12) for (k = p.minLane; !fits(k); k++);
+    p.ids.forEach((id, i) => {
+      left.set(id, p.xs[i]!);
+      lane.set(id, k);
+    });
+    placed.push({ name: p.name, lane: k, span: p.span, verticals: p.verticals, boxes: p.ids, root: p.root });
+    rootOf.set(p.name, p.root);
+  }
+
+  // Lanes top to bottom, each as tall as its tallest box, the boxes on it centred on one line. Empty lanes close up.
+  const used = [...new Set([...lane.values()])].sort((a, b) => a - b);
+  const tops = new Map<number, number>();
+  const bottoms = new Map<number, number>();
+  let top = 0;
+  for (const k of used) {
+    const tall = Math.max(...[...lane].filter(([, l]) => l === k).map(([id]) => h(id)));
+    tops.set(k, top);
+    bottoms.set(k, top + tall);
+    top += tall + LANE_GAP;
+  }
+  const nodes: Record<string, Box> = {};
+  for (const n of map.nodes) {
+    const k = lane.get(n.id)!;
+    nodes[n.id] = { x: left.get(n.id)!, y: tops.get(k)! + (bottoms.get(k)! - tops.get(k)! - h(n.id)) / 2, w: w(n.id), h: h(n.id) };
+  }
+
+  // Where an arrow meets the top or bottom of a box: a choice is a diamond, so off its middle the edge is higher up.
+  const kindOf = new Map(map.nodes.map((n) => [n.id, n.kind]));
+  const edgeY = (id: string, px: number, side: 'top' | 'bottom') => {
+    const b = nodes[id]!;
+    const inset = kindOf.get(id) === 'choice' ? Math.min(b.h / 2, (Math.abs(px - (b.x + b.w / 2)) * b.h) / b.w) : 0;
+    return side === 'top' ? b.y + inset : b.y + b.h - inset;
+  };
+  const mid = (id: string) => nodes[id]!.y + nodes[id]!.h / 2;
+  const laneOf = (id: string) => lane.get(id)!;
+  const lineOf = (k: number) => [...lane].filter(([, l]) => l === k).map(([id]) => id).sort((a, b) => left.get(a)! - left.get(b)!);
+
+  // What each arrow is, and which ends meet which side of a box, so arrows meeting the same side get their own places.
+  type Shape = 'straight' | 'arc' | 'under' | 'down' | 'rejoin' | 'up' | 'return';
+  const shapes = new Map<string, Shape>();
+  const ends = new Map<string, { link: string; key: number[] }[]>(); // `${node}:t` or `${node}:b`
+  const end = (node: string, side: 't' | 'b', link: string, key: number[]) => ends.set(`${node}:${side}`, [...(ends.get(`${node}:${side}`) ?? []), { link, key }]);
+  for (const l of all) {
+    const la = laneOf(l.from);
+    const lb = laneOf(l.to);
+    let shape: Shape;
+    if (la === lb) {
+      const line = lineOf(la);
+      shape = line.indexOf(l.to) === line.indexOf(l.from) + 1 ? 'straight' : la === 0 ? 'arc' : 'under';
+    } else if (lb > la) shape = 'down';
+    else shape = cx(l.to) > right(l.from) + 24 ? 'rejoin' : cx(l.to) < left.get(l.from)! - 24 ? 'return' : 'up';
+    shapes.set(l.id, shape);
+    if (shape === 'arc') {
+      end(l.from, 't', l.id, [cx(l.to)]);
+      end(l.to, 't', l.id, [cx(l.from)]);
+    }
+    // Along a box's bottom, left to right: arrows coming up from the left (from nearer lanes first), then straight up,
+    // then coming back from the right (from further lanes first), then going down (to further lanes first).
+    if (shape === 'rejoin' || shape === 'up') end(l.to, 'b', l.id, [0, la]);
+    if (shape === 'return') end(l.to, 'b', l.id, [1, -la]);
+    if (shape === 'down') end(l.from, 'b', l.id, [2, -lb]);
+  }
+  const portX = new Map<string, number>(); // `${link}:${node}:${side}`
+  for (const [at, list] of ends) {
+    const node = at.slice(0, at.lastIndexOf(':'));
+    list.sort((a, b) => a.key.reduce((d, v, i) => d || v - (b.key[i] ?? 0), 0));
+    list.forEach((e, i) => portX.set(`${e.link}:${at}`, cx(node) + (i - (list.length - 1) / 2) * PORT));
+  }
+  const port = (link: string, node: string, side: 't' | 'b') => portX.get(`${link}:${node}:${side}`) ?? cx(node);
+
+  // Arrows that skip along the main path run above it, the shortest lowest; arrows within a branch that don't go to the
+  // next box, and arrows back from a branch, run below it.
+  const arcs = all.filter((l) => shapes.get(l.id) === 'arc').sort((a, b) => Math.abs(cx(a.to) - cx(a.from)) - Math.abs(cx(b.to) - cx(b.from)));
+  const arcLevel = new Map(arcs.map((l, i) => [l.id, i]));
+  const underCount = new Map<number, number>();
+  const routes: Record<string, Route> = {};
+  for (const l of all) {
+    const a = nodes[l.from]!;
+    const b = nodes[l.to]!;
+    const la = laneOf(l.from);
+    const shape = shapes.get(l.id)!;
+    let route: Route;
+    if (shape === 'straight') {
+      route = { points: [[a.x + a.w, mid(l.from)], [b.x, mid(l.to)]], label: 0 };
+    } else if (shape === 'arc') {
+      const y = -ARC - 18 * arcLevel.get(l.id)!;
+      const sx = port(l.id, l.from, 't');
+      const tx = port(l.id, l.to, 't');
+      route = { points: [[sx, edgeY(l.from, sx, 'top')], [sx, y], [tx, y], [tx, edgeY(l.to, tx, 'top')]], label: 1 };
+    } else if (shape === 'under' || shape === 'return') {
+      const n = underCount.get(la) ?? 0;
+      underCount.set(la, n + 1);
+      const y = bottoms.get(la)! + LANE_RUN + 16 * n;
+      const sx = cx(l.from) + (shape === 'under' ? 6 : 0);
+      const tx = shape === 'return' ? port(l.id, l.to, 'b') : cx(l.to) - 6;
+      route = { points: [[sx, a.y + a.h], [sx, y], [tx, y], [tx, edgeY(l.to, tx, 'bottom')]], label: 1 };
+    } else if (shape === 'down') {
+      const sx = port(l.id, l.from, 'b');
+      const tx = cx(l.to);
+      const y = tops.get(laneOf(l.to))! - LANE_RUN;
+      route = Math.abs(tx - sx) < 4
+        ? { points: [[sx, edgeY(l.from, sx, 'bottom')], [sx, b.y]], label: 0 }
+        : { points: [[sx, edgeY(l.from, sx, 'bottom')], [sx, y], [tx, y], [tx, b.y]], label: 1 };
+    } else if (shape === 'rejoin') {
+      const tx = port(l.id, l.to, 'b');
+      // Across to below the step it comes back to, then up; over the top of its line if a box is in the way.
+      const blocked = lineOf(la).some((id) => id !== l.from && left.get(id)! < tx && right(id) > a.x + a.w);
+      const y = tops.get(la)! - LANE_GAP / 2;
+      route = blocked
+        ? { points: [[cx(l.from), a.y], [cx(l.from), y], [tx, y], [tx, edgeY(l.to, tx, 'bottom')]], label: 1 }
+        : { points: [[a.x + a.w, mid(l.from)], [tx, mid(l.from)], [tx, edgeY(l.to, tx, 'bottom')]], label: tx - (a.x + a.w) >= 150 ? 0 : 1 };
+    } else {
+      const tx = Math.min(Math.max(port(l.id, l.to, 'b'), a.x + 12), a.x + a.w - 12);
+      route = { points: [[tx, a.y], [tx, edgeY(l.to, tx, 'bottom')]], label: 0 };
+    }
+    routes[l.id] = route;
+  }
+
+  // Colours go to branches in the order they leave the main path, so the same journey is coloured the same way each time.
+  const named = mention.map((name) => {
+    const p = placed.find((q) => q.name === name);
+    if (p) return { name, root: p.root };
+    // A branch named only on arrows: where its first arrow leaves from.
+    const from = map.edges.find((e) => e.branch === name)?.from;
+    const fb = from ? branchOf.get(from) : null;
+    return { name, root: from && lane.get(from) === 0 ? main.indexOf(from) : fb ? rootOf.get(fb) ?? main.length : main.length };
+  });
+  const branches = named.sort((a, b) => a.root - b.root || mention.indexOf(a.name) - mention.indexOf(b.name)).map((b) => b.name);
+
+  const boxes = Object.values(nodes);
+  const points = Object.values(routes).flatMap((r) => r.points);
+  return {
+    areas: {},
+    nodes,
+    width: Math.max(...boxes.map((b) => b.x + b.w), ...points.map((p) => p[0])),
+    height: Math.max(...boxes.map((b) => b.y + b.h), ...points.map((p) => p[1])),
+    flat: true,
+    routes,
+    branches,
+  };
+}
+
 async function layoutWhole(map: CodeMap, extra: readonly ExtraEdge[]): Promise<Layout> {
   const engine = await getElk();
   const areaOf = new Map(map.nodes.map((n) => [n.id, n.area]));
@@ -293,7 +560,7 @@ export function sides(map: CodeMap, layout: Layout, from: string, to: string): [
 /** A key that changes only when the layout would: which boxes exist, where they live, and what connects them. */
 export function layoutKey(map: CodeMap, extra: readonly ExtraEdge[] = [], added: readonly string[] = [], pictured: readonly string[] = []): string {
   return JSON.stringify([
-    map.view === 'journey' ? [map.nodes.map((n) => n.kind), [...pictured].sort()] : null,
+    map.view === 'journey' ? [map.nodes.map((n) => n.kind), [...pictured].sort(), ...(hasBranches(map) ? [[...map.nodes, ...map.edges].map((x) => x.branch ?? '')] : [])] : null,
     [...added].sort(),
     map.areas.map((a) => a.id),
     map.nodes.map((n) => `${n.id}@${n.area}`),
