@@ -306,7 +306,7 @@ function OfferCard({ answer, busy, agentName, onOffer }: { answer: Answer; busy:
 
 /** What a selected box or arrow is, shown in a bubble beside it on the map (`bubble.tsx`), not in the conversation. */
 // Selecting it already puts it in the question box (a chip there), so the bubble has no ask button of its own.
-export function Selected({ mapId, map, report, ids, onClose, onExpand }: { mapId: string; map: CodeMap; report: CheckReport | null; ids: string[]; onClose: () => void; onExpand?: (name: string) => void }) {
+export function Selected({ mapId, map, report, ids, onClose }: { mapId: string; map: CodeMap; report: CheckReport | null; ids: string[]; onClose: () => void }) {
   const [codeShown, setCodeShown] = useCodeShown();
   const [diffShown, setDiffShown] = useDiffShown();
   const [jump, setJump] = useState<{ at: string; n: number } | null>(null);
@@ -399,10 +399,6 @@ export function Selected({ mapId, map, report, ids, onClose, onExpand }: { mapId
           </div>
           {codeShown && (node || edge) && <ItemCode mapId={mapId} itemId={id} change={change?.kind ?? null} since={since} stamp={report} jump={jump} />}
         </div>
-      )}
-      {/* Asks for the steps this box hides, drawn on the map: what the map grows for (DRAW_OR_SAY in prompts.ts). */}
-      {node && !node.proposed && onExpand && (
-        <button className="btn expand-btn" onClick={() => onExpand(node.name)}>Expand on the map</button>
       )}
     </Card>
   );

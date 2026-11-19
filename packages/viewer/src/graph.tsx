@@ -52,6 +52,8 @@ type StepData = {
   /** Set on a journey map: the box is drawn as part of a user flow, with no code on it. */
   journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null; branch: Branch | null };
   onClick: (additive: boolean) => void;
+  /** Set on the one selected box when it can be expanded: asks for the steps it hides, drawn on the map. */
+  onExpand?: () => void;
 };
 type Proposed = { kind: 'add' | 'change' | 'remove'; state: 'pending' | 'done' };
 /** What a proposal is called on the map, by kind, while it is pending and once the code shows it done. */
@@ -207,7 +209,28 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
             : <span className={data.confirmed ? 'tick' : 'qmark'}>{data.confirmed ? '✓' : '?'}</span>}
         <span className="step-sub">{data.sub}</span>
       </div>
+      {data.onExpand && <ExpandTab onExpand={data.onExpand} />}
     </div>
+  );
+}
+
+/**
+ * On the selected box, a tab to expand it: the steps it hides are asked for and drawn on the map, around this box. It
+ * sits on the box rather than in its bubble, where the code could push it out of view. A specific case ("what if it
+ * fails?") is a question typed with the box selected; the same rule draws it.
+ */
+function ExpandTab({ onExpand }: { onExpand: () => void }) {
+  return (
+    <button
+      className="expand-tab nopan"
+      title="Show the steps inside this on the map"
+      onClick={(e) => {
+        e.stopPropagation();
+        onExpand();
+      }}
+    >
+      + Expand
+    </button>
   );
 }
 
@@ -241,6 +264,7 @@ function JourneyNode({ data }: { data: StepData }) {
       {j.show && <ScreenThumb show={j.show} name={data.name} />}
       <div className="j-name" title={data.name}>{data.name}</div>
       {j.outside && j.shape !== 'choice' && <div className="j-note">Outside the app</div>}
+      {data.onExpand && <ExpandTab onExpand={data.onExpand} />}
     </div>
   );
 }
@@ -347,6 +371,8 @@ export type GraphProps = {
   touring: boolean;
   onSelect: (kind: keyof Sel, id: string, additive: boolean) => void;
   onClear: () => void;
+  /** Ask for the steps inside a box, drawn on the map; left out when it can't be offered (Codex, or Claude is busy). */
+  onExpand?: (id: string, name: string) => void;
 };
 
 /** Node ids a view is about: boxes directly, plus the ends of any arrows or gaps it names. */
@@ -482,6 +508,7 @@ export function MapGraph(p: GraphProps) {
           quiet: view === 'both' ? null : view,
           ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null, branch: branchFor('node', n.id, !!p.report && p.report.nodes[n.id]?.status !== 'unconfirmed' && !p.report.nodes[n.id]?.proposal && !drawnAs(p.report.nodes[n.id]?.change?.kind ?? null) && !ghostOf(n.id)) } }),
           onClick: (additive) => p.onSelect('nodes', n.id, additive),
+          ...(p.onExpand && !n.proposed && sel.nodes.length === 1 && sel.nodes[0] === n.id && !sel.edges.length && !sel.absences.length && { onExpand: () => p.onExpand!(n.id, n.name) }),
         },
         draggable: false,
         zIndex: 1,

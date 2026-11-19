@@ -43,14 +43,12 @@ function storedSize(): Size | null {
 
 type Place = { left: number; top: number; side: 'left' | 'right'; pointer: number; maxHeight: number };
 
-export function SelectionBubble({ mapId, map, report, selection, onClose, onExpand }: {
+export function SelectionBubble({ mapId, map, report, selection, onClose }: {
   mapId: string;
   map: CodeMap;
   report: CheckReport | null;
   selection: Sel;
   onClose: () => void;
-  /** Ask for the steps inside a box, drawn on the map (not offered when questions are asked in the agent's chat). */
-  onExpand?: (name: string) => void;
 }) {
   const ids = [...selection.nodes, ...selection.edges, ...selection.absences];
   const key = ids.join(' ');
@@ -163,7 +161,7 @@ export function SelectionBubble({ mapId, map, report, selection, onClose, onExpa
       aria-label="What you selected"
     >
       {place && <i className="box-bubble-pointer" style={{ top: place.pointer }} aria-hidden="true" />}
-      <Selected key={key} mapId={mapId} map={map} report={report} ids={ids} onClose={onClose} onExpand={onExpand} />
+      <Selected key={key} mapId={mapId} map={map} report={report} ids={ids} onClose={onClose} />
       <span className="box-bubble-grip" onPointerDown={onGrip} onDoubleClick={resetSize} title="Drag to resize. Double-click for the usual size." aria-hidden="true" />
     </div>
   );

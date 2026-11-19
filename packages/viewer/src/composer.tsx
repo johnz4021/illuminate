@@ -70,7 +70,7 @@ export function Composer({ map, selection, draft, busy, agentName = 'Claude', au
         id="ask"
         rows={1}
         value={draft}
-        placeholder={busy ? `${agentName} is working…` : chips.length ? 'Ask about what you selected…' : step ? 'Ask about this step…' : 'Ask about this map…'}
+        placeholder={busy ? `${agentName} is working…` : chips.length === 1 && chips[0]!.kind === 'nodes' ? 'Ask, or try “what if it fails?”' : chips.length ? 'Ask about what you selected…' : step ? 'Ask about this step…' : 'Ask about this map…'}
         onChange={(e) => onDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {

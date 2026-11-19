@@ -217,6 +217,8 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   const pendingFix = shown?.fix && ['proposed', 'applying', 'failed'].includes(s.fixes[shown.fix.id]?.status ?? '') ? shown.fix : null;
   const onSelect = useCallback((kind: keyof Sel, id: string, additive: boolean) => dispatch({ type: 'select', kind, id, additive }), []);
   const onClear = useCallback(() => dispatch({ type: 'clearSelection' }), []);
+  // "+ Expand" on the selected box: asks for the steps it hides, drawn on the map (DRAW_OR_SAY in prompts.ts).
+  const onExpand = useCallback((_id: string, name: string) => ask(`What happens inside “${name}”? Show its steps on the map.`), [ask]);
   const drawn = visibleMap(s);
   const added = addedIds(s);
   const view = currentView(s);
@@ -271,10 +273,10 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         <div className="canvas">
           {s.map && drawn ? (
             <>
-              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} />
+              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} onExpand={inChat || s.job ? undefined : onExpand} />
               {!panel && <ConversationButton state={onPage} dispatch={dispatch} />}
               {selSize(s.selection) > 0 && (
-                <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} onExpand={inChat || s.job ? undefined : (name) => ask(`What happens inside “${name}”? Show its steps on the map.`)} />
+                <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} />
               )}
               {/* A box picked during the walkthrough has the floor until it's closed, or the next stop. */}
               {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={inChat ? undefined : () => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}

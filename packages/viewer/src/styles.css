@@ -528,6 +528,8 @@ body.resizing-bubble { cursor: nwse-resize; user-select: none; }
 .step.jstep.change-changed.quiet { border-color: var(--changed); }
 .quiet .badge-change { background: transparent; padding: 0; font-weight: 500; }
 .key-swatch.key-quiet { background: var(--surface); border-color: var(--ink); box-shadow: inset 4px 0 0 var(--changed); }
-.expand-btn { justify-self: start; }
 /* The cited line whose code is open: clicking it again closes the code. */
 .chip.cite.chip-open { background: var(--lamp-soft); border-color: var(--lamp); }
+/* "+ Expand" on the selected box: a tab hanging from its bottom edge. */
+.expand-tab { position: absolute; left: 50%; bottom: -15px; transform: translateX(-50%); z-index: 2; height: 26px; padding: 0 11px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--lamp); color: var(--ink); font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; box-shadow: var(--shadow); }
+.expand-tab:hover { background: var(--lamp-soft); }
