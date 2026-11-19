@@ -184,7 +184,7 @@ export function Panel({ state: s, dispatch, onFix, onFocus, onOffer, composer }:
         {job?.kind === 'ask' && (
           <article className="turn">
             <You question={job.question} />
-            <Card eyebrow="Claude is working" tone="ai">
+            <Card eyebrow={`${s.agent.name} is working`} tone="ai">
               <Progress lines={job.progress} working />
             </Card>
           </article>
@@ -232,7 +232,7 @@ function Turn({ answer: a, state: s, dispatch, onFix, onFocus, onOffer }: { answ
     <article className="turn">
       <You question={a.question} about={about || undefined} />
       {a.offer ? (
-        <OfferCard answer={a} busy={!!s.job} onOffer={onOffer} />
+        <OfferCard answer={a} busy={!!s.job} agentName={s.agent.name} onOffer={onOffer} />
       ) : (
         <section className={cls('card', 'reply', lit && 'card-focus')}>
           <div className="reply-meta">
@@ -278,7 +278,7 @@ function Turn({ answer: a, state: s, dispatch, onFix, onFocus, onOffer }: { answ
 }
 
 /** "This looks like a different part of the app": a new map for it (or the one that already covers it), or words. */
-function OfferCard({ answer, busy, onOffer }: { answer: Answer; busy: boolean; onOffer: (answerId: string, choice: 'map' | 'words') => void }) {
+function OfferCard({ answer, busy, agentName, onOffer }: { answer: Answer; busy: boolean; agentName: string; onOffer: (answerId: string, choice: 'map' | 'words') => void }) {
   const o = answer.offer!;
   if (o.status === 'mapped') {
     return (
@@ -298,7 +298,7 @@ function OfferCard({ answer, busy, onOffer }: { answer: Answer; busy: boolean; o
       <div className="btns">
         {o.existing && <a className="btn primary" href={pageUrl(o.existing.id)}>Open that map</a>}
         <button className={o.existing ? 'btn' : 'btn primary'} onClick={() => onOffer(answer.id, 'map')}>Make a new map for this</button>
-        <button className="btn" disabled={busy} onClick={() => onOffer(answer.id, 'words')} title={busy ? 'Claude is still working on this map' : undefined}>Just answer in words</button>
+        <button className="btn" disabled={busy} onClick={() => onOffer(answer.id, 'words')} title={busy ? `${agentName} is still working on this map` : undefined}>Just answer in words</button>
       </div>
     </Card>
   );

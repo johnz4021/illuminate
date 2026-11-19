@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ApiError, api, connect, pageUrl, token } from './api';
-import { Composer } from './composer';
+import { asksInChat, selectionReport } from './asking';
+import { ChatAsk, Composer } from './composer';
 import { Dock } from './dock';
 import { ConversationButton } from './history';
 import { SelectionBubble } from './bubble';
@@ -144,10 +145,22 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
           wasConnected.current = value;
         },
         onStopped,
+        mapId,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  // When questions are asked in the agent's chat (Codex), the page tells illuminate what is selected and which
+  // walkthrough stop is on screen, a moment after it changes, so a question asked there is about it.
+  const tourStep = s.map && s.tour !== null ? s.map.tour[s.tour]?.title ?? null : null;
+  useEffect(() => {
+    const report = s.phase === 'ready' ? selectionReport(s.agent, s.selection, tourStep) : null;
+    if (!report) return;
+    const timer = setTimeout(() => void api.selection(mapId, report.selection, report.step).catch(() => {}), 250);
+    return () => clearTimeout(timer);
+  }, [mapId, s.phase, s.agent, s.selection, tourStep]);
+  const inChat = asksInChat(s.agent);
 
   // "Ask about this step" in the walkthrough puts the stop in the question box as a chip (removable with ×, like a
   // selection); moving to another stop takes it away. The question then says which step it's about.
@@ -220,12 +233,15 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   const tourWide = touring && firstScreen(s.map!, s.report, s.map!.tour[s.tour!]?.focus.nodes ?? [])?.show.kind === 'wireframe';
   // One question box: at the bottom of the conversation while it's open, in the dock while it isn't.
   const askInPanel = panel && !!s.map;
-  const composer = s.map ? (
+  const composer = s.map && inChat ? (
+    <ChatAsk map={s.map} agent={s.agent} selection={s.selection} step={tourStep} onRemove={(kind, id) => dispatch({ type: 'select', kind, id, additive: true })} />
+  ) : s.map ? (
     <Composer
       map={s.map}
       selection={s.selection}
       draft={draft}
       busy={!!s.job}
+      agentName={s.agent.name}
       autoFocus={askInPanel}
       onDraft={setDraft}
       onRemove={(kind, id) => dispatch({ type: 'select', kind, id, additive: true })}
@@ -247,7 +263,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         </div>
         <MapStatus report={s.report} />
         <a className="pill-btn" href={pageUrl()} title="Ask a new question and make a map for it">New map</a>
-        <StopButton busy={!!s.job} onStopped={onStopped} onError={(message) => dispatch({ type: 'error', message })} />
+        <StopButton busy={!!s.job} agentName={s.agent.name} onStopped={onStopped} onError={(message) => dispatch({ type: 'error', message })} />
         <span className={s.connected ? 'live on' : 'live'} title={s.connected ? 'Connected to illuminate' : 'Reconnecting to illuminate…'} />
       </header>
       <div className={panel ? 'body' : 'body full'} style={{ '--panel-w': `${panelWidth}px` } as CSSProperties}>
@@ -260,13 +276,13 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
                 <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} />
               )}
               {/* A box picked during the walkthrough has the floor until it's closed, or the next stop. */}
-              {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={() => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}
+              {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={inChat ? undefined : () => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}
               <Dock map={s.map} mapId={mapId} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>
                 {askInPanel ? null : composer}
               </Dock>
             </>
           ) : (
-            <div className="empty">{s.phase === 'making' ? <div className="pulse">Claude is exploring the code…</div> : null}</div>
+            <div className="empty">{s.phase === 'making' ? <div className="pulse">{s.agent.name} is exploring the code…</div> : null}</div>
           )}
         </div>
         {panel && <PanelResizer width={panelWidth} onWidth={setPanelWidth} />}

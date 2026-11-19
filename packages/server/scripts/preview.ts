@@ -169,7 +169,9 @@ const agent: Agent = async (req) => {
 
 const cleanUp = () => rmSync(root, { recursive: true, force: true });
 // No autoStop here (a preview stays up for UI work), but the page's Stop button still ends it.
-const server = await startServer({ root, port: Number(process.env.PORT ?? 4318), agent, onStop: () => { cleanUp(); process.exit(0); } });
+// PREVIEW_AGENT=codex shows the page as it is in Codex: questions are asked in the Codex chat, not on the page.
+const page = process.env.PREVIEW_AGENT === 'codex' ? { name: 'Codex', asks: 'chat' as const } : undefined;
+const server = await startServer({ root, port: Number(process.env.PORT ?? 4318), agent, page, onStop: () => { cleanUp(); process.exit(0); } });
 const id = server.startMap(process.env.PREVIEW_QUESTION ?? 'What happens when a patient converts? Does the welcome email go out?');
 console.log(`\nilluminate preview (scripted Claude, no model calls) on a copy of the care app:\n\n  ${server.pageUrl(id)}\n`);
 const stop = () => void server.close().then(() => { cleanUp(); process.exit(0); });

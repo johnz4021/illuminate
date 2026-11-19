@@ -1,5 +1,5 @@
 // Talking to the local illuminate server. The token comes from the link illuminate printed (`?t=…`) and goes on every call.
-import type { Answer, CheckReport, CodeMap, CodeView, MapMeta, Selection, ServerEvent } from './types';
+import type { Answer, CheckReport, CodeMap, CodeView, MapMeta, PageAgent, Selection, ServerEvent } from './types';
 
 function readToken(): string {
   const fromUrl = new URLSearchParams(location.search).get('t');
@@ -47,16 +47,20 @@ export type MapPayload = {
   answers: Answer[];
   /** Fixes that are waiting for approval or applied; any other fix was rejected. */
   fixes?: Record<string, { status: 'proposed' | 'applied'; edgeId?: string | null; closed?: string[]; undoable?: boolean }>;
+  /** Who does the model work, and where questions are asked (missing from an older server: Claude, on the page). */
+  agent?: PageAgent;
 };
 
 export const api = {
-  list: () => call<{ repo: string; maps: MapMeta[]; making: { id: string; question: string }[] }>('GET', '/api/maps'),
+  list: () => call<{ repo: string; maps: MapMeta[]; making: { id: string; question: string }[]; agent?: PageAgent }>('GET', '/api/maps'),
   get: (id: string) => call<MapPayload>('GET', `/api/maps/${encodeURIComponent(id)}`),
   /** `parent`: the map whose question this new map grew out of. */
   make: (question: string, parent?: string) => call<{ id: string }>('POST', '/api/maps', { question, parent }),
   /** Their choice for a question about a different part of the app: a new map, or an answer in words. */
   offer: (id: string, answerId: string, choice: 'map' | 'words') =>
     call<{ id?: string; ok: true }>('POST', `/api/maps/${encodeURIComponent(id)}/answers/${encodeURIComponent(answerId)}/offer`, { choice }),
+  /** What is selected on this page and the walkthrough stop on screen, for questions asked in the agent's chat. */
+  selection: (id: string, selection: Selection, step: string | null) => call<{ ok: true }>('PUT', `/api/maps/${encodeURIComponent(id)}/selection`, { selection, step }),
   ask: (id: string, question: string, selection: Selection) => call<{ ok: true }>('POST', `/api/maps/${encodeURIComponent(id)}/ask`, { question, selection }),
   approve: (id: string, fixId: string) =>
     call<{ edgeId: string | null; closed: string[]; files: string[] }>('POST', `/api/maps/${encodeURIComponent(id)}/fixes/${encodeURIComponent(fixId)}/approve`),
@@ -76,14 +80,15 @@ const STOPPED_CLOSE_CODE = 4000;
 
 /**
  * Live events from the server. Reconnects after a drop, except when illuminate stopped on purpose (`onStopped`). An open
- * connection is also what tells the server a tab is still open. Returns a function that stops listening.
+ * connection is also what tells the server a tab is still open, and (with `mapId`) which map it shows. Returns a
+ * function that stops listening.
  */
-export function connect(onEvent: (e: ServerEvent) => void, onStatus: (connected: boolean) => void, onStopped: () => void): () => void {
+export function connect(onEvent: (e: ServerEvent) => void, onStatus: (connected: boolean) => void, onStopped: () => void, mapId?: string): () => void {
   let ws: WebSocket | null = null;
   let stopped = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
   const open = () => {
-    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?t=${encodeURIComponent(token)}`);
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?t=${encodeURIComponent(token)}${mapId ? `&m=${encodeURIComponent(mapId)}` : ''}`);
     ws.onopen = () => onStatus(true);
     ws.onmessage = (m) => {
       try {

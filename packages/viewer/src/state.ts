@@ -1,6 +1,7 @@
 // Everything the map screen shows, as a pure reducer over server payloads, live events and clicks.
 import type { MapPayload } from './api';
-import type { Answer, CheckReport, CodeMap, FixProposal, MapMeta, Selection, ServerEvent } from './types';
+import { DEFAULT_AGENT } from './asking';
+import type { Answer, CheckReport, CodeMap, FixProposal, MapMeta, PageAgent, Selection, ServerEvent } from './types';
 
 export type Sel = { nodes: string[]; edges: string[]; absences: string[] };
 export const emptySel = (): Sel => ({ nodes: [], edges: [], absences: [] });
@@ -43,6 +44,8 @@ export type State = {
   /** Answers whose additions are hidden, so the map looks more like it did when it was first drawn. */
   hidden: string[];
   connected: boolean;
+  /** Who does the model work, and where questions are asked. */
+  agent: PageAgent;
 };
 
 export type Action =
@@ -86,6 +89,7 @@ export const initialState = (mapId: string): State => ({
   fresh: [],
   hidden: [],
   connected: false,
+  agent: DEFAULT_AGENT,
 });
 
 export const currentView = (s: State): View | null => s.views[s.viewIndex] ?? null;
@@ -182,6 +186,7 @@ export function reducer(s: State, a: Action): State {
         // A reopened map starts at its overview (and walkthrough), not at the last answer.
         shown: null,
         fixes: fixesFrom(p.answers, s.fixes, p.fixes ?? {}),
+        agent: p.agent ?? s.agent,
       };
     }
     case 'missing':

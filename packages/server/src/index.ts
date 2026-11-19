@@ -5,7 +5,8 @@ export { applyFix, connectAfterFix, proposeFix, undoFix, type AppliedFix, type F
 export { headStart } from './hints';
 export { makeMap, type MakeOptions, type MakeResult } from './maker';
 export { ANSWER_SCHEMA, MAP_SCHEMA, RawAnswer, RawFix } from './schemas';
-export { startServer, type IlluminateServer, type JobKind, type JobState, type ServerEvent, type ServerOptions } from './server';
+export { startServer, type IlluminateServer, type JobKind, type JobState, type PageAgent, type ServerEvent, type ServerOptions } from './server';
 export { createStore, type MapMeta, type Store, type StoredMap } from './store';
 export { createBridge, type Bridge, type BridgeRequest } from './bridge';
-export { CHANNEL_INSTRUCTIONS, createChannel, requestText, runChannel, type ChannelOptions } from './channel';
+export { CHANNEL_INSTRUCTIONS, createChannel, partsOf, requestText, runChannel, type ChannelOptions } from './channel';
+export { CLAUDE_CODE, CODEX, CODEX_CLIENT, hostOf, type AgentHost } from './host';

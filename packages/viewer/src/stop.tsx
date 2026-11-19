@@ -6,7 +6,7 @@ import { api } from './api';
 // goes away by itself if it isn't answered, or on Escape.
 const ASK_FOR_MS = 8000;
 
-export function StopButton({ busy, onStopped, onError }: { busy: boolean; onStopped: () => void; onError: (message: string) => void }) {
+export function StopButton({ busy, agentName = 'Claude', onStopped, onError }: { busy: boolean; agentName?: string; onStopped: () => void; onError: (message: string) => void }) {
   const [asking, setAsking] = useState(false);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export function StopButton({ busy, onStopped, onError }: { busy: boolean; onStop
     <button
       className="pill-btn"
       disabled={busy}
-      title={busy ? 'Claude is still working' : 'Maps stay saved. Undo for applied fixes ends.'}
+      title={busy ? `${agentName} is still working` : 'Maps stay saved. Undo for applied fixes ends.'}
       onClick={() => setAsking(true)}
     >
       Stop illuminate
