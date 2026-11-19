@@ -390,7 +390,8 @@ export async function startServer(o: ServerOptions): Promise<IlluminateServer> {
       const stored = store.get(mapId);
       const job = jobs.get(mapId) ?? null;
       if (!stored) {
-        if (job || failures.has(mapId)) return json(res, 200, { meta: null, map: null, report: null, job, failure: failures.get(mapId) ?? null, answers: [] });
+        // The page also learns who asks here while the map is still being made, or it shows the wrong question box.
+        if (job || failures.has(mapId)) return json(res, 200, { meta: null, map: null, report: null, job, failure: failures.get(mapId) ?? null, answers: [], agent: page });
         throw new HttpError(404, 'No such map.');
       }
       return json(res, 200, { ...stored, report: check(stored.map, root), job, failure: null, answers: stored.answers ?? [], fixes: fixStates(stored), agent: page });

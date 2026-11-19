@@ -43,6 +43,20 @@ describe('a map page reporting what is selected', () => {
     expect((await api('GET', '/api/maps')).body.agent).toEqual({ name: 'Codex', asks: 'chat' });
   });
 
+  it('tells the page who asks while the map is still being made, so the right question box shows from the start', async () => {
+    const making = await startServer({ root: copyCareApp(), port: 0, agent: () => new Promise(() => {}), viewerDir: '/no-viewer', page: { name: 'Codex', asks: 'chat' } });
+    try {
+      const id = making.startMap('Where does the email go?');
+      const res = await fetch(`${making.url}/api/maps/${id}`, { headers: { 'x-illuminate-token': making.token } });
+      const body = (await res.json()) as { map: unknown; job: unknown; agent: unknown };
+      expect(body.map).toBeNull();
+      expect(body.job).not.toBeNull();
+      expect(body.agent).toEqual({ name: 'Codex', asks: 'chat' });
+    } finally {
+      await making.close();
+    }
+  });
+
   it('knows which map was open last: the one a page connected to', async () => {
     expect(server.lastSeen()).toBeNull();
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws?t=${server.token}&m=patient-converts`);

@@ -1,9 +1,9 @@
 // The two screens: the list of maps (with a box to ask a new question), and a map with its panel and input bar. Moving
 // between them doesn't reload the page.
-import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ApiError, api, connect, pageUrl, token } from './api';
-import { asksInChat, selectionReport } from './asking';
+import { answersOnPage, asksInChat, selectionReport } from './asking';
 import { ChatAsk, Composer } from './composer';
 import { Dock } from './dock';
 import { ConversationButton } from './history';
@@ -16,7 +16,6 @@ import { Panel } from './panel';
 import { PanelResizer, usePanelWidth } from './resize';
 import { TourBubble } from './tour';
 import { askAboutStep } from './step';
-import { firstScreen } from './screen';
 import { addedIds, currentView, initialState, reducer, selSize, visibleMap, type Sel } from './state';
 import type { CheckReport } from './types';
 
@@ -226,11 +225,13 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
   // exists, it says how making it is going). What's selected is a bubble on the map instead (bubble.tsx), so picking a
   // box doesn't open or squeeze the panel. During the walkthrough the panel steps aside for the map, unless there is
   // an error, Claude's progress, or the person opened the conversation (peek).
-  const hasPanel = !s.map || !!s.error || !!s.job || s.shown !== null;
-  const panel = hasPanel && (!touring || s.peek || !!s.error || s.job?.kind === 'ask');
-  // A page's wireframe needs room to keep the shape of a page. While one is showing, the walkthrough bubble is wider,
-  // and the panel is at least wide enough for it (never narrower than the person set it, and the map keeps some room).
-  const tourWide = touring && firstScreen(s.map!, s.report, s.map!.tour[s.tour!]?.focus.nodes ?? [])?.show.kind === 'wireframe';
+  // In Codex the reply is in its chat (with the code it points at), so the conversation beside the map only shows the
+  // answers that need the page, a fix to approve or an offer to take up, and not Codex's progress on a question.
+  const onPage = useMemo(() => ({ ...s, answers: answersOnPage(s.agent, s.answers, s.fixes) }), [s]);
+  const shownOnPage = s.shown !== null && onPage.answers.some((a) => a.id === s.shown);
+  const askingHere = s.job?.kind === 'ask' && !inChat;
+  const hasPanel = !s.map || !!s.error || (!!s.job && (s.job.kind === 'make' || askingHere)) || shownOnPage;
+  const panel = hasPanel && (!touring || s.peek || !!s.error || askingHere);
   // One question box: at the bottom of the conversation while it's open, in the dock while it isn't.
   const askInPanel = panel && !!s.map;
   const composer = s.map && inChat ? (
@@ -270,13 +271,13 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
         <div className="canvas">
           {s.map && drawn ? (
             <>
-              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} tourWide={tourWide} onSelect={onSelect} onClear={onClear} />
-              {!panel && <ConversationButton state={s} dispatch={dispatch} />}
+              <MapGraph map={drawn} report={s.report} selection={s.selection} view={view} fresh={s.fresh} added={added} ghost={pendingFix ?? null} touring={touring} onSelect={onSelect} onClear={onClear} />
+              {!panel && <ConversationButton state={onPage} dispatch={dispatch} />}
               {selSize(s.selection) > 0 && (
                 <SelectionBubble mapId={mapId} map={drawn} report={s.report} selection={s.selection} onClose={onClear} />
               )}
               {/* A box picked during the walkthrough has the floor until it's closed, or the next stop. */}
-              {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} report={s.report} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={inChat ? undefined : () => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}
+              {touring && selSize(s.selection) === 0 && <TourBubble map={s.map} stop={s.tour!} onTour={(stop) => dispatch({ type: 'tour', stop })} onAsk={inChat ? undefined : () => { setStepOn(s.tour); document.getElementById('ask')?.focus(); }} />}
               <Dock map={s.map} mapId={mapId} tour={s.tour} onTour={(stop) => dispatch({ type: 'tour', stop })} selected={selSize(s.selection)}>
                 {askInPanel ? null : composer}
               </Dock>
@@ -286,7 +287,7 @@ function MapScreen({ mapId, onStopped }: { mapId: string; onStopped: () => void 
           )}
         </div>
         {panel && <PanelResizer width={panelWidth} onWidth={setPanelWidth} />}
-        {panel && <Panel state={s} dispatch={dispatch} onFix={onFix} onFocus={(id) => dispatch({ type: 'focus', id })} onOffer={onOffer} composer={askInPanel ? composer : null} />}
+        {panel && <Panel state={onPage} dispatch={dispatch} onFix={onFix} onFocus={(id) => dispatch({ type: 'focus', id })} onOffer={onOffer} composer={askInPanel ? composer : null} />}
       </div>
     </div>
     </ReactFlowProvider>

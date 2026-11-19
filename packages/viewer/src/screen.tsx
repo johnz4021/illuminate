@@ -3,7 +3,7 @@
 // visible parts. Only screens the checker confirmed get here.
 import { useState } from 'react';
 import { screenUrl } from './api';
-import type { CheckReport, CodeMap, ScreenShow } from './types';
+import type { CheckReport, ScreenShow } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
 const pct = (n: number) => `${Math.max(0, Math.min(1, n)) * 100}%`;
@@ -14,20 +14,8 @@ export function screenOf(report: CheckReport | null, id: string): ScreenShow | n
   return c?.status === 'confirmed' ? c.show : null;
 }
 
-/** The first confirmed screen among these boxes (a walkthrough stop's, say), with the box it belongs to. */
-export function firstScreen(map: CodeMap, report: CheckReport | null, ids: readonly string[]): { name: string; show: ScreenShow } | null {
-  for (const id of ids) {
-    const show = screenOf(report, id);
-    const node = map.nodes.find((n) => n.id === id);
-    if (show && node) return { name: node.name, show };
-  }
-  return null;
-}
-
 type WireframeShow = Extract<ScreenShow, { kind: 'wireframe' }>;
 type WireRegion = WireframeShow['page']['regions'][number];
-/** A page's wireframe needs more room than a sketch: the walkthrough bubble and a box's bubble widen to this while one shows. */
-export const WIREFRAME_BUBBLE_W = 600;
 
 /**
  * A page as a wireframe: its regions in five fixed places (top, left, main, right, bottom), with the region and the

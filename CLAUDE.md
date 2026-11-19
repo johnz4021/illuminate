@@ -143,7 +143,11 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   the same channel, with what differs decided per call. Codex can't background a call or be woken, so there is no
   `illuminate_listen` (not listed); a question about an open map is asked in the Codex chat and comes in through
   `illuminate_ask`, which takes the map from the page's URL (else the page that reported last, `lastSeen`), adds what
-  is selected there and starts the same `startAsk` as the map's own box (`askFromChat` in `server.ts`). The page tells
+  is selected there and starts the same `startAsk` as the map's own box (`askFromChat` in `server.ts`). The reply
+  belongs in the Codex chat: once the answer is checked and lit on the map, Codex gets it back to post (`chatReply` in
+  `reply.ts`: the reply, the lines its notes point at read again now as numbered code blocks, and a word about a fix
+  waiting on the map), and the page's conversation column only shows answers with something to do there, a fix or an
+  offer (`answersOnPage` in `viewer/src/asking.ts`). The page tells
   the server what is selected and which walkthrough stop is on screen (`PUT /api/maps/<id>/selection`, debounced,
   memory only) and names its map on the WebSocket (`?m=`). Calls wait at most 40 s (Codex's tool timeout is 60 s by
   default); `illuminate_next` is how Codex keeps waiting, and how work started on the page gets picked up ("carry on
@@ -196,9 +200,9 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   names its file and a few elements), and a box shows its page with its own region and element marked. `checkPage`
   confirms each region's file is the page's file or one it imports (however many steps) and that every element's
   text is in that file; a region that fails is left off. Which slot a region is in can't be checked, so the drawing
-  says the layout is approximate. Nothing has to be running for a wireframe. It is drawn at its natural size: the
-  walkthrough bubble and the panel widen while one shows (`WIREFRAME_BUBBLE_W`, `WIREFRAME_PANEL_W` in `screen.tsx`),
-  and its styles are in `viewer/src/wireframe.css`. The other kinds: `capture` (a screenshot
+  says the layout is approximate. Nothing has to be running for a wireframe. It is drawn at its natural size: a box's
+  bubble widens while one shows (`.box-bubble-wide`), and its styles are in `viewer/src/wireframe.css`. The
+  walkthrough bubble shows no pictures: the boxes it lights up carry theirs. The other kinds: `capture` (a screenshot
   illuminate took itself with the installed Chrome, headless, clean profile, only of localhost pages or HTML files in
   the repo; saved with a record under `.illuminate/screens/`), `image` (a repo image the cited code names) and `sketch`
   (one component's visible things as a list, every element's text in its markup file; now only asked for on proposals,

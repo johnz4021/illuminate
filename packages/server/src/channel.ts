@@ -40,6 +40,7 @@ import { capture, listScreens, type Shooter } from './screens';
 import { startServer, type IlluminateServer, type ServerEvent } from './server';
 import { createStore } from './store';
 import { VERSION, checkForUpdate, updateMessage, type InstalledVia, type Newer } from './updates';
+import { chatReply } from './reply';
 
 export type ChannelOptions = {
   /** The repo maps are about unless a tool call names another (Claude Code passes CLAUDE_PROJECT_DIR). */
@@ -416,7 +417,15 @@ export function createChannel(o: ChannelOptions) {
       const offer = a?.offer?.status === 'pending' ? a.offer : null;
       message = offer
         ? `That question is about a different part of the app than this map shows. The map offers ${offer.existing ? `the map that already covers it ("${offer.existing.question}"), or ` : ''}a new map for "${offer.question}". Ask the person in a sentence whether they want a new map; if they do, call illuminate_map with that question.`
-        : `The answer to "${e.question}" is shown on the map, in the conversation beside it. In the chat, say at most a sentence or two.`;
+        : a
+          // In Codex the reply belongs in the chat where it was asked: hand back the checked answer to post there.
+          ? [
+            'illuminate checked the answer and lit up what it is about on the map. Post the reply between the lines to the person as your answer, unchanged: keep the code blocks and line numbers exactly as they are, and add nothing about the code that isn\'t in it.',
+            '---',
+            chatReply(root, a),
+            '---',
+          ].join('\n')
+          : `The answer to "${e.question}" is shown on the map. In the chat, say at most a sentence or two.`;
     } else message = `The answer to "${e.question}" is shown on the map. Call illuminate_listen again for their next question.`;
     for (const f of [...finished]) f(message);
   }

@@ -392,8 +392,20 @@ describe('the channel in Codex', () => {
     const req = await call('illuminate_ask', { question: 'Why does no email go out?' });
     expect(req.text).toContain('Asked on the map "patient-converts" about');
     expect(req.text).toContain('Answering "Why does no email go out?" from the map');
-    const done = await call('illuminate_submit', { request_id: requestId(req.text), output: { route: 'answer', concept: 'Nothing listens for the announcement.', refs: ['miss'] } });
-    expect(done.text).toContain('is shown on the map');
+    const done = await call('illuminate_submit', {
+      request_id: requestId(req.text),
+      output: {
+        route: 'answer', concept: 'Nothing listens for the announcement.', refs: ['miss'],
+        notes: [{ file: 'src/patients/service.ts', line: 6, text: "bus.emit('patient.converted'", note: 'The announcement goes out here.' }],
+      },
+    });
+    // The checked answer comes back for Codex to post in its chat, with the line its note points at, read now.
+    expect(done.text).toContain('Post the reply between the lines');
+    expect(done.text).toContain('Nothing listens for the announcement.');
+    expect(done.text).toContain('`src/patients/service.ts` · markConverted');
+    expect(done.text).toContain("```ts\n");
+    expect(done.text).toContain("6    bus.emit('patient.converted', { patientId });");
+    expect(done.text).toContain('- Line 6: The announcement goes out here.');
     expect(done.text).not.toContain('illuminate_listen');
     const saved = await (await fetch(`${url.origin}/api/maps/patient-converts`, { headers: { 'x-illuminate-token': url.searchParams.get('t')! } })).json() as { answers: { concept: string; selection: unknown }[] };
     expect(saved.answers.at(-1)).toMatchObject({ concept: 'Nothing listens for the announcement.', selection: { nodes: ['s4'] } });

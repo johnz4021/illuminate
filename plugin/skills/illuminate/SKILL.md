@@ -43,8 +43,8 @@ the requests it hands you and `illuminate_submit` them, as above. A long request
 link, and if you have a built-in browser (the ChatGPT desktop app does), open the link there so the map sits beside the
 chat. Then, whenever the user asks about the map in the chat (a box, an arrow, what they selected, a walkthrough step),
 call `illuminate_ask` with their question and the page's current URL if your browser context shows it. illuminate adds
-what they selected on the page; do the request it returns and submit it. The answer appears on the map, so say a
-sentence or two in the chat. If they say "carry on with illuminate", call `illuminate_next`. Never wait for questions
+what they selected on the page; do the request it returns and submit it. illuminate checks your answer, lights it up on
+the map and hands it back: post that reply in the chat unchanged, code blocks and line numbers as they are. If they say "carry on with illuminate", call `illuminate_next`. Never wait for questions
 from the page: Codex can't be woken that way.
 
 **In Claude Code, when the plugin is installed but you have no `illuminate_map` tool**: illuminate's server didn't

@@ -154,7 +154,9 @@ port and says so.
 Ask about the map in the Codex chat, not on the page. Codex can't be woken from the page, so the page's question box
 points to the chat instead. Click a box or arrow first: the page tells illuminate what you selected (or which
 walkthrough step is on screen), and your question in the chat is about that. Codex hands the question to illuminate,
-does the work, and the answer appears on the map. Approving a fix still happens on the page.
+does the work, illuminate checks the answer and lights up what it's about on the map, and Codex posts the checked
+answer in the chat, with the lines of code it points at. The page has no conversation column in Codex; it opens only for
+something to do there: approving a fix (that still happens on the page), or taking up the offer of a new map.
 
 In the Codex CLI or IDE extension there's no built-in browser: open the link in your own browser, and in the chat name
 the box you mean (or select it on the page first; that still works).

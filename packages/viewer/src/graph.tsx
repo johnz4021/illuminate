@@ -22,7 +22,7 @@ import {
 } from '@xyflow/react';
 import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout, type Route } from './layout';
 import type { Sel, View } from './state';
-import { ScreenThumb, WIREFRAME_BUBBLE_W } from './screen';
+import { ScreenThumb } from './screen';
 import type { CheckReport, CodeMap, FixProposal, ScreenShow } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
@@ -345,8 +345,6 @@ export type GraphProps = {
   ghost: FixProposal | null;
   /** The walkthrough is running: keep what it lights up clear of its bubble, bottom left. */
   touring: boolean;
-  /** The stop shows a page's wireframe, so the bubble is wider and needs more room. */
-  tourWide?: boolean;
   onSelect: (kind: keyof Sel, id: string, additive: boolean) => void;
   onClear: () => void;
 };
@@ -366,7 +364,6 @@ function nodesOf(map: CodeMap, ids: readonly string[]): string[] {
 
 /** Room the camera leaves on the left for the walkthrough bubble (its width plus a margin). */
 const TOUR_ROOM = '440px';
-const TOUR_ROOM_WIDE = `${WIREFRAME_BUBBLE_W + 40}px`;
 
 const shortClaim = (claim: string) => (claim.length > 28 ? `${claim.slice(0, 26)}…` : claim);
 
@@ -625,7 +622,7 @@ export function MapGraph(p: GraphProps) {
   // React Flow has measured every box, or it would fit an empty canvas.
   // During the walkthrough the width counts too: opening the conversation beside it narrows the map, and the stop is
   // fitted again into what's left.
-  const viewKey = JSON.stringify([layout?.key, p.view?.focus, p.view?.highlight, p.touring, p.tourWide, p.touring ? paneWidth : null]);
+  const viewKey = JSON.stringify([layout?.key, p.view?.focus, p.view?.highlight, p.touring, p.touring ? paneWidth : null]);
   const firstFit = useRef(true);
   useEffect(() => {
     if (!layout) return;
@@ -650,7 +647,7 @@ export function MapGraph(p: GraphProps) {
       const under = Math.max(0, Math.max(0, ...points.map((q) => q[1])) - Math.max(0, ...boxes.map((b) => b.y + b.h)) + (points.length ? 16 : 0));
       const keyRoom = layout.layout.branches?.length ? 56 : 0;
       const padding = ids.length
-        ? ({ top: `${60 + keyRoom}px`, left: p.touring ? (p.tourWide ? TOUR_ROOM_WIDE : TOUR_ROOM) : '60px', right: '60px', bottom: '150px' } as const)
+        ? ({ top: `${60 + keyRoom}px`, left: p.touring ? TOUR_ROOM : '60px', right: '60px', bottom: '150px' } as const)
         // top: the earlier-questions button, and on a journey with branches its key (and the stage names under it).
         : ({ top: `${64 + over + keyRoom}px`, left: '32px', right: '32px', bottom: `${130 + under}px` } as const);
       void rf.fitView(ids.length ? { nodes: ids.map((n) => ({ id: n })), duration, padding, maxZoom: 1.15 } : { duration, padding, maxZoom: 1.1 });

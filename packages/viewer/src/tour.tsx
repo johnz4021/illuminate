@@ -1,27 +1,26 @@
 // The walkthrough, as a bubble on the map: the stop's text and the buttons to move through it sit together, next to
-// the boxes it lights up. The camera leaves room for it (see `TOUR_ROOM` in graph.tsx).
+// the boxes it lights up. The camera leaves room for it (see `TOUR_ROOM` in graph.tsx). It shows no picture of a
+// page: the boxes it lights up carry theirs on the map, and selecting one shows it full size in the box's bubble, so a
+// picture here only covered the map.
 import { Markdown } from './markdown';
-import { ScreenView, firstScreen } from './screen';
-import type { CheckReport, CodeMap } from './types';
+import type { CodeMap } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
 
 export type TourBubbleProps = {
   map: CodeMap;
-  report: CheckReport | null;
   stop: number;
   onTour: (stop: number | null) => void;
   /** Put this stop in the question box, as a chip (left out when questions are asked in the agent's chat). */
   onAsk?: () => void;
 };
 
-export function TourBubble({ map, report, stop: i, onTour, onAsk }: TourBubbleProps) {
+export function TourBubble({ map, stop: i, onTour, onAsk }: TourBubbleProps) {
   const stop = map.tour[i];
   if (!stop) return null;
   const last = i === map.tour.length - 1;
-  const screen = firstScreen(map, report, stop.focus.nodes ?? []);
   return (
-    <section className={cls('card card-focus tour-bubble', screen?.show.kind === 'wireframe' && 'tour-wide')} aria-label="Walkthrough" aria-live="polite">
+    <section className="card card-focus tour-bubble" aria-label="Walkthrough" aria-live="polite">
       <button className="card-close" aria-label="Leave the walkthrough" title="Leave the walkthrough (Esc)" onClick={() => onTour(null)}>×</button>
       <div className="tour-head">
         <span className="eyebrow">Walkthrough, stop {i + 1} of {map.tour.length}</span>
@@ -31,7 +30,6 @@ export function TourBubble({ map, report, stop: i, onTour, onAsk }: TourBubblePr
       </div>
       <h2 className="card-title">{stop.title}</h2>
       <Markdown text={stop.text} className="depth-text" />
-      {screen && <ScreenView show={screen.show} name={screen.name} />}
       {stop.terms?.length ? <p className="muted small">Terms: {stop.terms.join(', ')}</p> : null}
       <div className="tour-nav">
         <button className="btn" disabled={i === 0} onClick={() => onTour(i - 1)}>‹ Back</button>
