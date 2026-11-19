@@ -530,3 +530,7 @@ body.resizing-bubble { cursor: nwse-resize; user-select: none; }
 .key-swatch.key-quiet { background: var(--surface); border-color: var(--ink); box-shadow: inset 4px 0 0 var(--changed); }
 /* The cited line whose code is open: clicking it again closes the code. */
 .chip.cite.chip-open { background: var(--lamp-soft); border-color: var(--lamp); }
+/* A label with nowhere clear to go (labels.ts): a small dot on its arrow, its words shown when pointed at. */
+.link-label.dot:not(:hover) { width: 11px; height: 11px; min-width: 0; padding: 0; border-radius: 50%; }
+.link-label.dot:not(:hover) > * { display: none; }
+.link-label.dot:hover { z-index: 10; }

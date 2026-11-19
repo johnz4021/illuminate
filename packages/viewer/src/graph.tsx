@@ -20,6 +20,7 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
+import { placeLabels, type LabelInput, type LabelPlace, type Rect } from './labels';
 import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout, type Route } from './layout';
 import type { Sel, View } from './state';
 import { ScreenThumb } from './screen';
@@ -140,6 +141,8 @@ type LinkData = {
   route?: Route;
   /** On a journey with branches: the branch this arrow is on, drawn in its colour (none on the main path). */
   branch?: Branch | null;
+  /** Where its label goes when its own spot would cover a box or another label (labels.ts); a dot when nowhere fits. */
+  place?: LabelPlace;
   proposal?: Proposed | null;
   change?: Change | null;
   ghost?: Ghost | null;
@@ -307,15 +310,21 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
     ? bentPath(sourceX, sourceY, targetX, targetY, data.offset)
     : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   if (!data) return null;
+  const moved = data.place && data.place !== 'dot' ? data.place : null;
+  // A label with nowhere clear to go is a dot on its arrow, showing its words when pointed at or selected.
+  const dot = data.place === 'dot' && !data.selected;
   return (
     <>
       {data.selected && <path d={path} className="edge-halo" />}
       <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={18} />
       <EdgeLabelRenderer>
         <div
-          className={cls('link-label', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.ghost && 'ghost', branchClass(data.branch), data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
+          className={cls('link-label', dot && 'dot', `link-${data.variant}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.ghost && 'ghost', branchClass(data.branch), data.hl && 'hl', data.dim && 'dim', data.selected && 'selected', 'nodrag nopan')}
           data-id={id}
-          style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
+          data-x={lx}
+          data-y={ly}
+          title={dot ? data.label : undefined}
+          style={{ transform: `translate(-50%, -50%) translate(${moved?.x ?? lx}px, ${moved?.y ?? ly}px)` }}
           onClick={(e) => {
             e.stopPropagation();
             data.onClick?.(e.shiftKey || e.metaKey);
@@ -380,11 +389,14 @@ export function MapGraph(p: GraphProps) {
   const key = layoutKey(p.map, extra, p.added, pictured);
   const [layout, setLayout] = useState<{ key: string; layout: Layout } | null>(null);
   const rf = useReactFlow();
+  const [placed, setPlaced] = useState<{ key: string; at: Record<string, LabelPlace> }>({ key: '', at: {} });
   // On a map of a change: both versions at once, or only the code as it was, or only the code as it is now. Boxes keep
   // their places in all three, so flipping between Before and After shows what moved in and out.
   const [when, setWhen] = useState<When>('both');
   const comparing = !!p.report?.since?.commit;
   const view: When = comparing ? when : 'both';
+  // Labels' places for one layout (and the arrows shown in it); a new layout starts with labels where their arrows put them.
+  const placeKey = JSON.stringify([layout?.key ?? null, view, ghost?.id ?? null]);
   const changeOf = (id: string): Change | null => p.report?.nodes[id]?.change?.kind ?? p.report?.edges[id]?.change?.kind ?? null;
   /** What isn't part of the version being shown stays on the map as a shadow, so the map keeps its shape. */
   const ghostOf = (id: string): Ghost | null => (view === 'before' && changeOf(id) === 'added' ? 'later' : view === 'after' && changeOf(id) === 'removed' ? 'gone' : null);
@@ -493,7 +505,7 @@ export function MapGraph(p: GraphProps) {
           onClick: (additive) => p.onSelect('nodes', n.id, additive),
         },
         draggable: false,
-        zIndex: 1,
+        zIndex: 3,
       }];
     });
     return [...areaNodes, ...stepNodes];
@@ -537,7 +549,7 @@ export function MapGraph(p: GraphProps) {
         type: 'link' as const,
         className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), changeClass(change), shadow && 'ghost', branchClass(branch), on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
         markerEnd: marker(shadow ? 'var(--line)' : proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : change === 'added' ? 'var(--ok)' : change === 'removed' ? 'var(--dead)' : branch ? `var(--branch-${branch.colour})` : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
-        zIndex: 2,
+        zIndex: 1,
         data: {
           label: e.label,
           wrapY: wrapY(e.from, e.to),
@@ -571,7 +583,7 @@ export function MapGraph(p: GraphProps) {
         type: 'link',
         className: cls('link', 'link-absence', !confirmed && 'unconfirmed', on(a.id) && 'hl', !!hl && !on(a.id) && 'dim', sel.absences.includes(a.id) && 'selected'),
         markerEnd: marker('var(--dead)'),
-        zIndex: 2,
+        zIndex: 1,
         data: {
           label: shortClaim(a.claim),
           route: layout.layout.routes?.[`a:${a.id}`],
@@ -593,7 +605,7 @@ export function MapGraph(p: GraphProps) {
         type: 'link',
         className: 'link link-ghost',
         markerEnd: marker('var(--ok)'),
-        zIndex: 3,
+        zIndex: 2,
         data: { label: `+ ${ghost.connects.label}`, route: layout.layout.routes?.[`x:${ghost.id}`], variant: 'ghost', confirmed: true, hl: true, dim: false, selected: false },
       });
     }
@@ -610,8 +622,60 @@ export function MapGraph(p: GraphProps) {
         if (e.data) e.data.offset = (i - (group.length - 1) / 2) * 44;
       });
     }
+    // Labels moved off boxes and each other, once worked out for this layout (see the effect below).
+    if (placed.key === placeKey) for (const e of out) if (e.data && placed.at[e.id]) e.data.place = placed.at[e.id];
     return out;
-  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view, branches]);
+  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view, branches, placed, placeKey]);
+
+  // Where labels go: once the map is drawn, each label is checked against the boxes, the area titles and the labels
+  // placed before it, and moved along its arrow if it would cover one (labels.ts). Worked out again only when the
+  // layout changes; until then labels sit where their arrows put them.
+  useEffect(() => {
+    if (!layout) return;
+    let frame = 0;
+    let handle = 0;
+    const tick = () => {
+      const els = [...document.querySelectorAll<HTMLElement>('.react-flow__edgelabel-renderer .link-label[data-id]')];
+      const ready = els.length > 0 && els.every((el) => el.offsetWidth > 0) && rf.getNodes().every((n) => rf.getInternalNode(n.id)?.measured?.width);
+      if (frame++ < 2 || !ready) {
+        if (frame < 60) handle = requestAnimationFrame(tick);
+        return;
+      }
+      const boxes: Rect[] = [];
+      const titles: Rect[] = [];
+      for (const n of rf.getNodes()) {
+        const i = rf.getInternalNode(n.id);
+        if (!i || n.hidden) continue;
+        const at = i.internals.positionAbsolute;
+        const w = i.measured.width ?? 0;
+        const h = i.measured.height ?? 0;
+        // A box whole; an area only where its title is, since labels may sit over an area's empty space.
+        if (n.type === 'step') boxes.push({ x: at.x, y: at.y, w, h });
+        else if (n.type === 'area') titles.push({ x: at.x, y: at.y, w: Math.min(w, 280), h: 40 });
+      }
+      const labels: LabelInput[] = els.map((el) => {
+        const path = document.getElementById(el.dataset.id!) as SVGPathElement | null;
+        const length = path?.getTotalLength?.() ?? 0;
+        return {
+          id: el.dataset.id!,
+          w: el.offsetWidth,
+          h: el.offsetHeight,
+          at: { x: Number(el.dataset.x), y: Number(el.dataset.y) },
+          // A missing connection is never shrunk to a dot.
+          keep: el.dataset.id!.startsWith('a:'),
+          along: (t) => {
+            if (!path || !length) return null;
+            const p = path.getPointAtLength(length * t);
+            return { x: p.x, y: p.y };
+          },
+        };
+      });
+      setPlaced({ key: placeKey, at: placeLabels(labels, boxes, titles) });
+    };
+    handle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeKey]);
 
   // When the map area changes width (the panel comes and goes, or is dragged wider), keep what was in the middle in
   // the middle, rather than letting the panel slide over the right-hand side of the map.
@@ -672,6 +736,9 @@ export function MapGraph(p: GraphProps) {
       className={layout?.layout.flat ? 'journey' : undefined}
       nodes={nodes}
       edges={edges}
+      // Layers as given, not raised for arrows into areas: areas at the bottom, then arrows, then boxes on top, so
+      // an arrow can pass under a box but never across its words.
+      zIndexMode="manual"
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       // Steps select themselves (see StepNode); this handler only keeps React Flow from turning their pointer events off.

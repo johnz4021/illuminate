@@ -124,6 +124,11 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   Step boxes are `NODE_W`×`NODE_H` in `layout.ts`, which must match `.step` in `styles.css`.
 - **Viewer navigation** (`viewer/src/nav.ts`): moving between maps and home is in-page (`history.pushState`), and
   in-app `<a href>` clicks are taken over, so the page never reloads.
+- **Arrow labels** (`viewer/src/labels.ts`): once a layout is drawn, each label is checked against the boxes and the
+  labels placed before it, and slides along its own arrow to the first clear spot; with none it becomes a dot that
+  shows its words when pointed at. A missing connection's label is placed first and never becomes a dot; area titles
+  are avoided when possible. Arrows sit under boxes (`zIndexMode="manual"`: areas 0, arrows 1, boxes 3), so a line
+  can pass under a box but never across its words.
 - **Layers** (viewer): what each answer added (`answer.added`) can be hidden. The layout puts the original map down
   first and fits additions around it (rows below in existing areas, new areas to the right), so known boxes never move.
 - **Channel** (`channel.ts`, `bridge.ts`; `illume channel`): illuminate as a Claude Code channel, an MCP server over
