@@ -91,10 +91,8 @@ parts are now in the code.
 - **Take the walkthrough.** A few stops, starting with the answer to your question.
 - **Click any box or arrow** to see what it does and the code behind it: the function itself, with the lines the map
   relies on marked and a link that opens the file in your editor at that line.
-- **Ask for more of the map.** When the answer is more of the flow (what happens next, what's inside a box, what if it
-  fails, how two things connect), Claude reads the code and draws it on the map, checked like the rest.
 - **Ask a follow-up** in the box at the bottom, or select something first and ask about that. The answer lights up the
-  part of the map it's about. When the question is about the code itself ("what's in this payload?"), the answer comes
+  part of the map it's about, and when seeing it drawn helps, Claude adds it to the map, checked like the rest. When the question is about the code itself ("what's in this payload?"), the answer comes
   with the lines that show it, each with a note.
 - **Ask for a fix.** Claude proposes one, drawn on the map next to the exact change. Nothing is edited until you
   approve it.
