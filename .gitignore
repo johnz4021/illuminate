@@ -11,3 +11,7 @@ coverage/
 /release/README.md
 /release/LICENSE
 *.tgz
+
+# Private notes: customer interviews and saved AI chat transcripts stay on this machine.
+CUSTOMER_DISCOVERY.md
+.specstory/
