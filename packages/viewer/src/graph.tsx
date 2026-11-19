@@ -437,6 +437,9 @@ export function MapGraph(p: GraphProps) {
         type: 'area' as const,
         position: { x: box.x, y: box.y },
         style: { width: box.w, height: box.h },
+        // The size the layout gave it, so React Flow never hides it while waiting to measure it (see below).
+        initialWidth: box.w,
+        initialHeight: box.h,
         data: { label: a.label, note: null, dim: !reached(a.id) },
         selectable: false,
         draggable: false,
@@ -466,6 +469,11 @@ export function MapGraph(p: GraphProps) {
         type: 'step' as const,
         ...(l.flat ? {} : { parentId: `area:${n.area}`, extent: 'parent' as const }),
         position: { x: box.x, y: box.y },
+        // React Flow hides a node until the browser has measured it, and a rebuilt node is measured again only when
+        // its size changes. When an answer redrew the map while the tab wasn't being painted, boxes kept their size,
+        // were never measured again, and stayed hidden: a blank map. The layout already knows every box's size.
+        initialWidth: box.w,
+        initialHeight: box.h,
         data: {
           name: n.name,
           sub,
