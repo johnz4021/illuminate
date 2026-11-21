@@ -12,15 +12,55 @@ Design: [Codemap v1 Design](https://claude.ai/artifact/55L8tokprGe61qtfpDXJ5h).
 
 ## Install
 
-In Claude Code (2.1.275 or later), in any repo:
+You need Claude Code 2.1.275 or later (`claude --version`) and Node 20.19 or later (`node --version`). There is no API
+key to set up: illuminate uses your own Claude Code session and sign-in.
+
+**1. Install the plugin.** In a terminal:
 
 ```
-/plugin install illuminate --marketplace johnz4021/illuminate
+claude plugin install illuminate --marketplace johnz4021/illuminate
 ```
 
-Then restart Claude Code. That's all: illuminate uses your own Claude Code session and sign-in, so there is no API key
-to set up. It needs Node 20.19 or later. If Node is missing or too old, ask for a map anyway: Claude checks, offers to
-install or update it, and tells you what to restart.
+Or inside Claude Code:
+
+```
+/plugin marketplace add johnz4021/illuminate
+/plugin install illuminate@illuminate
+```
+
+**2. Restart Claude Code.**
+
+**3. Ask how something works**, in any repo:
+
+> What happens when a user signs up?
+
+Or start with `/illuminate`. A map opens in your browser after about a minute.
+
+### Or have your agent install it
+
+Paste this into Claude Code:
+
+```
+Install the illuminate plugin for Claude Code for me (https://github.com/johnz4021/illuminate):
+1. Check `claude --version` is 2.1.275 or later and `node --version` is 20.19 or later. If Claude Code is older,
+   tell me to run `claude update` myself and stop. If Node is missing or older, tell me, and offer to install it
+   with what my machine already uses (nvm, fnm, volta, asdf or Homebrew); only do it if I say yes.
+2. Run `claude plugin install illuminate --marketplace johnz4021/illuminate`. If it fails because the git clone
+   timed out, run it once more with CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS=300000 set.
+3. Run `claude plugin list` and check illuminate is there and enabled.
+4. Tell me to restart Claude Code, and suggest a first question to ask about this repo.
+```
+
+For Codex, see [Codex (preview)](#codex-preview).
+
+### If it doesn't work
+
+- **"Git clone timed out" while installing:** Claude Code downloads the plugin from GitHub, and a slow connection can
+  time out. Run the command again, or give it longer: `CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS=300000 claude plugin install
+  illuminate --marketplace johnz4021/illuminate`.
+- **Claude doesn't make a map after the restart:** run `/mcp` in Claude Code. It shows whether the illuminate server
+  started, and its error if it didn't. The usual cause is Node: ask for a map anyway, and Claude checks Node, offers to
+  install or update it, and tells you what to restart.
 
 ## Updating
 
@@ -144,6 +184,15 @@ Code. Install it as a plugin:
 ```
 codex plugin marketplace add johnz4021/illuminate
 codex plugin add illuminate@illuminate
+```
+
+Then restart Codex. Or paste this into Codex:
+
+```
+Install the illuminate plugin for Codex for me (https://github.com/johnz4021/illuminate):
+1. Check `node --version` is 20.19 or later. If Node is missing or older, tell me and stop.
+2. Run `codex plugin marketplace add johnz4021/illuminate`, then `codex plugin add illuminate@illuminate`.
+3. Tell me to restart Codex, then to ask for a map in the chat.
 ```
 
 Or add only the server: `codex mcp add illuminate -- npx -y @johnz4021/illuminate@latest channel`. From a checkout of
