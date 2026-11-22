@@ -9,6 +9,7 @@ import { AnswerCode, ItemCode, useCodeShown, useDiffShown } from './code';
 import { ScreenView, screenOf } from './screen';
 import { Markdown } from './markdown';
 import { splitStep } from './step';
+import { followTarget, latestBelow } from './follow';
 import { layersOf, type Action, type FixState, type State } from './state';
 import type { Answer, CheckReport, ClaimCheck, CodeMap } from './types';
 
@@ -136,12 +137,56 @@ export function Panel({ state: s, dispatch, onFix, onFocus, onOffer, composer }:
   const map = s.map;
   const job = s.job;
   const scroller = useRef<HTMLDivElement>(null);
+  // Following the newest turn (follow.ts): on until the person scrolls the conversation themselves.
+  const follow = useRef(true);
+  const [away, setAway] = useState(false);
+  const newest = () => {
+    const turns = scroller.current?.querySelectorAll<HTMLElement>(':scope > .turn');
+    return turns?.length ? turns[turns.length - 1]! : null;
+  };
+  const toNewest = (smooth = false) => {
+    const el = scroller.current;
+    const turn = newest();
+    if (!el || !turn) return;
+    el.scrollTo({ top: followTarget(el.scrollTop, el.getBoundingClientRect().top, turn.getBoundingClientRect().top), behavior: smooth ? 'smooth' : 'auto' });
+  };
 
-  // Keep the newest turn in view as the conversation grows and while Claude works.
+  // A new question or reply (or the panel opening): show where the newest turn starts, and keep it there while its
+  // code and every earlier reply's code load in, unless the person scrolls.
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [s.answers.length, job?.progress.length, !!job]);
+    if (!el) return;
+    follow.current = true;
+    setAway(false);
+    toNewest();
+    const grown = new ResizeObserver(() => { if (follow.current) toNewest(); });
+    for (const child of Array.from(el.children)) grown.observe(child);
+    return () => grown.disconnect();
+  }, [s.answers.length, !!job, !!map]);
+
+  // The person scrolling takes over; the Latest button shows while the newest turn starts below the view.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const takeOver = () => { follow.current = false; };
+    const onPointer = (e: PointerEvent) => { if (e.target === el) takeOver(); };
+    const onScroll = () => {
+      const turn = newest();
+      setAway(!!turn && latestBelow(el.getBoundingClientRect().bottom, turn.getBoundingClientRect().top));
+    };
+    el.addEventListener('wheel', takeOver, { passive: true });
+    el.addEventListener('touchmove', takeOver, { passive: true });
+    el.addEventListener('keydown', takeOver);
+    el.addEventListener('pointerdown', onPointer);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', takeOver);
+      el.removeEventListener('touchmove', takeOver);
+      el.removeEventListener('keydown', takeOver);
+      el.removeEventListener('pointerdown', onPointer);
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, [!!map]);
 
   if (s.phase === 'loading') return <aside className="panel"><div className="panel-scroll"><Card><p className="muted">Loading…</p></Card></div></aside>;
   if (s.phase === 'missing') return <aside className="panel"><div className="panel-scroll"><Card title="No map here"><p className="muted">This map isn't in this repo.</p></Card></div></aside>;
@@ -194,6 +239,7 @@ export function Panel({ state: s, dispatch, onFix, onFocus, onOffer, composer }:
       </div>
 
       <footer className="panel-foot">
+        {away && <button className="to-latest" onClick={() => { follow.current = true; toNewest(true); }}>↓ Latest</button>}
         {composer}
       </footer>
     </aside>
