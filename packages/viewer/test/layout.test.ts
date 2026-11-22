@@ -231,3 +231,60 @@ describe('layoutMap on a journey with branches', () => {
     expect(layoutKey({ ...long, nodes: long.nodes.map((n) => (n.id === 'b1' ? { ...n, branch: 'A' } : n)) })).not.toBe(layoutKey(long));
   });
 });
+
+describe('layoutMap on a timeline', () => {
+  // Alice and Bob take turns across two chains: A, then B, then back to A.
+  const swap = (() => {
+    const cites = [{ file: 'src/swap.ts', line: 1, text: 'x' }];
+    const r = parseMap({
+      version: 1,
+      question: 'How does the swap work?',
+      view: 'timeline',
+      areas: [{ id: 'a', label: 'Chain A' }, { id: 'b', label: 'Chain B' }],
+      nodes: [
+        { id: 'lockA', area: 'a', name: 'Alice locks on A', evidence: cites },
+        { id: 'lockB', area: 'b', name: 'Bob locks on B', evidence: cites },
+        { id: 'claimB', area: 'b', name: 'Alice claims on B', evidence: cites },
+        { id: 'claimA', area: 'a', name: 'Bob claims on A', evidence: cites },
+      ],
+      edges: [
+        { id: 'e1', from: 'lockA', to: 'lockB', kind: 'then', label: 'then Bob locks', evidence: cites },
+        { id: 'e2', from: 'lockB', to: 'claimB', kind: 'then', label: 'then Alice claims', evidence: cites },
+        { id: 'e3', from: 'claimB', to: 'claimA', kind: 'then', label: 'then Bob claims', evidence: cites },
+      ],
+    });
+    if (!r.ok) throw new Error(r.problems.join('\n'));
+    return r.map;
+  })();
+
+  it('gives each area a lane across the whole map, one under the other', async () => {
+    const l = await layoutMap(swap);
+    expect(l.lanes).toBe(true);
+    expect(l.areas.a).toMatchObject({ x: 0, w: l.width });
+    expect(l.areas.b).toMatchObject({ x: 0, w: l.width });
+    expect(l.areas.a!.y + l.areas.a!.h).toBeLessThanOrEqual(l.areas.b!.y);
+  });
+
+  it('puts the steps left to right in the order they happen, even when the flow comes back to a lane', async () => {
+    const l = await layoutMap(swap);
+    const xs = ['lockA', 'lockB', 'claimB', 'claimA'].map((id) => l.nodes[id]!.x);
+    expect(xs).toEqual([...xs].sort((p, q) => p - q));
+    expect(new Set(xs).size).toBe(4);
+  });
+
+  it('joins steps in the same lane side to side, and steps in one column top to bottom', async () => {
+    const l = await layoutMap(swap);
+    expect(sides(swap, l, 'lockB', 'claimB')).toEqual(['r', 'l']);
+    expect(sides(swap, l, 'claimB', 'claimA')).toEqual(['r', 'l']);
+  });
+
+  it('lays a loop out with only the arrow that goes back pointing left', async () => {
+    const loop = { ...swap, edges: [...swap.edges, { ...swap.edges[0]!, id: 'back', from: 'claimA', to: 'lockA' }] };
+    const l = await layoutMap(loop);
+    expect(l.nodes.lockA!.x).toBeLessThan(l.nodes.claimA!.x);
+  });
+
+  it('lays out again when a map becomes a timeline', () => {
+    expect(layoutKey(swap)).not.toBe(layoutKey({ ...swap, view: undefined }));
+  });
+});

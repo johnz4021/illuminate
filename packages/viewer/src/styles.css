@@ -447,6 +447,8 @@ body.resizing-bubble { cursor: nwse-resize; user-select: none; }
 .j-choice.proposal-add.proposal-pending .j-diamond polygon { stroke-dasharray: 6 5; }
 .j-choice .j-name { font-size: 13.5px; }
 .journey .link-label { max-width: 128px; white-space: normal; text-align: center; line-height: 1.25; }
+/* In lanes, steps of one area sit side by side, so a label wraps to fit the gap between them. */
+.lanes .link-label { max-width: 116px; white-space: normal; text-align: center; line-height: 1.25; }
 /* A journey box with the picture of its screen on it. */
 .step.jstep.j-pictured { padding: 8px 8px 7px; align-content: start; gap: 6px; justify-items: stretch; }
 .thumb { height: 132px; border-radius: 7px; overflow: hidden; border: 1px solid var(--line); background: var(--paper); color: var(--ink); text-align: left; }

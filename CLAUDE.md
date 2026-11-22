@@ -124,6 +124,9 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   Step boxes are `NODE_W`×`NODE_H` in `layout.ts`, which must match `.step` in `styles.css`.
 - **Viewer navigation** (`viewer/src/nav.ts`): moving between maps and home is in-page (`history.pushState`), and
   in-app `<a href>` clicks are taken over, so the page never reloads.
+- **Arrow label words** (the `label` rule in `MAP_RULES`): an arrow reads as a sentence, "<from box> <label> <to box>",
+  so a label says who does the next step when it isn't the box the arrow leaves ("then Alice claims", not "claims with
+  secret" after a box about Bob).
 - **Arrow labels** (`viewer/src/labels.ts`): once a layout is drawn, each label is checked against the boxes and the
   labels placed before it, and slides along its own arrow to the first clear spot; with none it becomes a dot that
   shows its words when pointed at. A missing connection's label is placed first and never becomes a dot; area titles
@@ -199,6 +202,16 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   order they leave the main path, with a key at the top left under the change key. Without branches the old layout
   is used unchanged. `npm run preview` returns the journey fixture (`care-app.journey.json`, three branches) for a
   question with "journey" or "go through" in it, or set `PREVIEW_QUESTION`.
+- **Timelines** (`TIMELINE_RULES` in `prompts.ts`, `view: 'timeline'` in the format, `layoutLanes` in
+  `viewer/src/layout.ts`): Claude's call, like a journey, for parties that take turns where the order between them is
+  the point (a handshake, a login through an outside service, a payment and its webhook, a swap across chains). Each
+  area is a lane across the whole map, one under the other, and each box sits in its area's lane, in its column in
+  time (`timeColumns`: how many steps after the start it is, following the arrows; loops are broken where they turn
+  back, so only an arrow that goes back points left). A flow that comes back to a place reads in order instead of
+  zigzagging, which the area layout can't avoid. Boxes in one lane are joined side to side, and labels wrap to fit
+  between them (`.lanes .link-label`). Not used for one-way flows (the area layout already reads in order, and lanes
+  only make the map wider) or for maps built around one function that calls the rest (arrows there say who calls
+  whom, not when).
 - **Screens** (`core/src/screens.ts`, `server/src/screens.ts`, `viewer/src/screen.tsx`): a box may carry an optional
   `screen`, and the model decides when one helps (`SCREEN_RULES` in `prompts.ts`). The usual one is a `wireframe`:
   the map defines each page once in `pages` (regions in five fixed slots: top, left, main, right, bottom; each region

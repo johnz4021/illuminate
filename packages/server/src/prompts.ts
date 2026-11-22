@@ -28,6 +28,16 @@ const MAP_RULES = [
   '- When there is a break, record it: the `claim` in plain words, the two boxes it should connect (`between`), and the exact `search` that proves nothing is there (`pattern`, `regex`, optional `paths` globs covering every file where the missing piece could live), with `matches` set to the count that search returns (usually 0). Run that search yourself with Grep first.',
 ];
 
+/**
+ * A timeline: for parties that take turns, where the order between them is the point. Drawn with a lane per area and
+ * time left to right, so a flow that goes back and forth between places reads in order instead of zigzagging.
+ */
+const TIMELINE_RULES = [
+  '## When the answer is parties taking turns (a timeline)',
+  '- Set `"view": "timeline"` when the answer is two or more parties or places handing off to each other, back and forth, and the order between them is the point: a protocol or handshake, a login through an outside service, a payment and its webhook, a client and server over a socket, a swap across two chains. It is drawn with one lane per area and time running left to right, so make each area one party or place ("Browser", "Our server", "Google"; "Chain A", "Chain B"), and list the boxes in the order things happen.',
+  '- Not for a flow that passes through each place once (the usual map already reads in order), not for how things are organised or what depends on what, and not for what a person sees (that is a journey).',
+];
+
 /** A journey: the map told as what a person sees and does, each step still tied to the code that makes it so. */
 const JOURNEY_RULES = [
   '## When the question is about what a person sees or does (a journey, a user flow)',
@@ -98,6 +108,8 @@ export function makerPrompt(question: string, headStart: string): string {
     `## The question\n"${question}"`,
     '',
     ...MAP_RULES,
+    '',
+    ...TIMELINE_RULES,
     '',
     ...JOURNEY_RULES,
     '',

@@ -116,6 +116,10 @@ from the code, with the part the step is about marked. Nothing has to be running
 
 ![A user journey: the main path across the top, three coloured branches below it](docs/images/journey.png)
 
+When the answer is parties taking turns (a login through Google, a payment and its webhook, a swap across two
+chains), Claude draws a timeline instead: a lane for each party, and the steps left to right in the order they happen,
+so you can see who does what when.
+
 ### 4. A change before it's made
 
 > How would we send the welcome email right away when a patient converts? Show me a plan.

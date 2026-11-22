@@ -1,5 +1,6 @@
 // Laying the map out with ELK, in two passes: each area's steps stack top to bottom in the order the arrows go, then
-// the areas themselves run left to right along the arrows that cross between them. Missing connections and proposed
+// the areas themselves run left to right along the arrows that cross between them. A timeline is laid out apart
+// (`layoutLanes`): a lane per area, time left to right. A journey too (`layoutJourney`, `layoutBranches`). Missing connections and proposed
 // fixes take part like arrows do. Arrows attach to the sides of the boxes that face each other.
 // What answers added is laid out around the map as it was first drawn, so the boxes someone already knows never move:
 // additions to an existing area go in rows below its steps, new areas go to the right.
@@ -22,6 +23,8 @@ export type Layout = {
   routes?: Record<string, Route>;
   /** A journey with branches: their names, in the order their colours are given out. */
   branches?: string[];
+  /** A timeline: each area a lane across the map, time left to right (`layoutLanes`). */
+  lanes?: boolean;
 };
 
 export type Point = [number, number];
@@ -118,6 +121,8 @@ function withoutIds(map: CodeMap, ids: ReadonlySet<string>): CodeMap {
 export async function layoutMap(map: CodeMap, extra: readonly ExtraEdge[] = [], added: ReadonlySet<string> = new Set(), pictured: ReadonlySet<string> = new Set()): Promise<Layout> {
   // A journey is one line of boxes, so anything added is simply laid out with the rest.
   if (map.view === 'journey') return hasBranches(map) ? layoutBranches(map, extra, pictured) : layoutJourney(map, extra, pictured);
+  // A timeline puts everything in its place in time, what answers added included (so known boxes can move).
+  if (map.view === 'timeline') return layoutLanes(map, extra);
   const addedNodes = map.nodes.filter((n) => added.has(n.id));
   if (!addedNodes.length) return layoutWhole(map, extra);
 
@@ -490,6 +495,72 @@ async function layoutBranches(map: CodeMap, extra: readonly ExtraEdge[], picture
   };
 }
 
+const LANE_COL_GAP = 132;
+const LANE_ROW_GAP = 40;
+const BAND_GAP = 36;
+
+/**
+ * Each box's column in time: how many steps after the start it is, following the arrows. Loops are broken where they
+ * turn back (found walking the arrows in the map's own order), so an arrow that goes back to an earlier step is the
+ * only kind that points left. A box no arrow reaches starts at column 0.
+ */
+export function timeColumns(ids: readonly string[], ls: readonly { from: string; to: string }[]): Map<string, number> {
+  const out = new Map<string, string[]>();
+  const into = new Set<string>();
+  for (const l of ls) {
+    (out.get(l.from) ?? out.set(l.from, []).get(l.from)!).push(l.to);
+    into.add(l.to);
+  }
+  const state = new Map<string, 'open' | 'done'>();
+  const finished: string[] = [];
+  const visit = (id: string) => {
+    state.set(id, 'open');
+    for (const to of out.get(id) ?? []) if (!state.has(to)) visit(to);
+    state.set(id, 'done');
+    finished.push(id);
+  };
+  for (const id of [...ids.filter((i) => !into.has(i)), ...ids]) if (!state.has(id)) visit(id);
+  const order = finished.reverse();
+  const place = new Map(order.map((id, i) => [id, i]));
+  const col = new Map(ids.map((id) => [id, 0]));
+  for (const id of order) {
+    for (const to of out.get(id) ?? []) {
+      if ((place.get(to) ?? 0) > (place.get(id) ?? 0)) col.set(to, Math.max(col.get(to) ?? 0, (col.get(id) ?? 0) + 1));
+    }
+  }
+  return col;
+}
+
+/**
+ * Time left to right, places top to bottom: every area is a lane across the whole map, and a box sits in its area's
+ * lane, in its column in time. A flow that comes back to a place it has been reads in order instead of zigzagging.
+ */
+async function layoutLanes(map: CodeMap, extra: readonly ExtraEdge[]): Promise<Layout> {
+  const col = timeColumns(map.nodes.map((n) => n.id), links(map, extra));
+  const cols = Math.max(0, ...col.values()) + 1;
+  const width = 2 * PAD.side + cols * NODE_W + (cols - 1) * LANE_COL_GAP;
+  const first = (areaId: string) => Math.min(...map.nodes.filter((n) => n.area === areaId).map((n) => col.get(n.id) ?? 0));
+  const lanes = map.areas.filter((a) => map.nodes.some((n) => n.area === a.id)).sort((a, b) => first(a.id) - first(b.id));
+  const areas: Record<string, Box> = {};
+  const nodes: Record<string, Box> = {};
+  let y = 0;
+  for (const lane of lanes) {
+    const stacked = new Map<number, number>();
+    let rows = 1;
+    for (const n of map.nodes.filter((m) => m.area === lane.id)) {
+      const c = col.get(n.id) ?? 0;
+      const row = stacked.get(c) ?? 0;
+      stacked.set(c, row + 1);
+      rows = Math.max(rows, row + 1);
+      nodes[n.id] = { x: PAD.side + c * (NODE_W + LANE_COL_GAP), y: PAD.top + row * (NODE_H + LANE_ROW_GAP), w: NODE_W, h: NODE_H };
+    }
+    const h = PAD.top + rows * NODE_H + (rows - 1) * LANE_ROW_GAP + PAD.bottom;
+    areas[lane.id] = { x: 0, y, w: width, h };
+    y += h + BAND_GAP;
+  }
+  return { areas, nodes, width, height: Math.max(0, y - BAND_GAP), lanes: true };
+}
+
 async function layoutWhole(map: CodeMap, extra: readonly ExtraEdge[]): Promise<Layout> {
   const engine = await getElk();
   const areaOf = new Map(map.nodes.map((n) => [n.id, n.area]));
@@ -553,13 +624,15 @@ export function sides(map: CodeMap, layout: Layout, from: string, to: string): [
   const q = abs(to);
   const dx = q.x - p.x;
   const dy = q.y - p.y;
-  if (areaOf(from) === areaOf(to) || Math.abs(dx) < NODE_W * 0.75) return dy >= 0 ? ['b', 't'] : ['t', 'b'];
+  // In lanes, boxes of one area sit side by side in time, so only boxes in the same column are joined top to bottom.
+  if ((!layout.lanes && areaOf(from) === areaOf(to)) || Math.abs(dx) < NODE_W * 0.75) return dy >= 0 ? ['b', 't'] : ['t', 'b'];
   return dx >= 0 ? ['r', 'l'] : ['l', 'r'];
 }
 
 /** A key that changes only when the layout would: which boxes exist, where they live, and what connects them. */
 export function layoutKey(map: CodeMap, extra: readonly ExtraEdge[] = [], added: readonly string[] = [], pictured: readonly string[] = []): string {
   return JSON.stringify([
+    map.view ?? null,
     map.view === 'journey' ? [map.nodes.map((n) => n.kind), [...pictured].sort(), ...(hasBranches(map) ? [[...map.nodes, ...map.edges].map((x) => x.branch ?? '')] : [])] : null,
     [...added].sort(),
     map.areas.map((a) => a.id),

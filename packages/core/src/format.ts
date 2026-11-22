@@ -175,8 +175,12 @@ export const CodeMap = z.object({
   question: z.string().min(1).max(QUESTION_MAX),
   /** The commit the map was made from, when known. */
   commit: z.string().nullable().optional(),
-  /** `journey`: drawn as a user flow (left to right, shapes by kind, no code on the boxes). The claims are checked the same. */
-  view: z.enum(['journey']).optional(),
+  /**
+   * How the map is drawn; the claims are checked the same either way. `journey`: a user flow (left to right, shapes by
+   * kind, no code on the boxes). `timeline`: parties taking turns, each area a lane across the map and time running
+   * left to right. Neither: grouped by area.
+   */
+  view: z.enum(['journey', 'timeline']).optional(),
   /**
    * Set on a map of a change: the commit the code is compared with. The checker marks each box and arrow that is new
    * or different since then, and confirms the ones the map says were `removed`. Stored as a full hash once resolved,

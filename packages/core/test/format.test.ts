@@ -104,3 +104,11 @@ describe('a journey map', () => {
     expect(parseMap({ ...raw, view: 'poster' }).ok).toBe(false);
   });
 });
+
+describe('a timeline map', () => {
+  it('is the same format with view "timeline", and no other view is accepted', () => {
+    const r = parseMap({ ...minimal(), view: 'timeline' });
+    expect(r.ok && r.map.view).toBe('timeline');
+    expect(parseMap({ ...minimal(), view: 'swimlanes' }).ok).toBe(false);
+  });
+});

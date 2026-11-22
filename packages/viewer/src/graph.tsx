@@ -733,7 +733,7 @@ export function MapGraph(p: GraphProps) {
 
   return (
     <ReactFlow
-      className={layout?.layout.flat ? 'journey' : undefined}
+      className={layout?.layout.flat ? 'journey' : layout?.layout.lanes ? 'lanes' : undefined}
       nodes={nodes}
       edges={edges}
       // Layers as given, not raised for arrows into areas: areas at the bottom, then arrows, then boxes on top, so
