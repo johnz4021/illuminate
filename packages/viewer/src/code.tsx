@@ -1,9 +1,10 @@
 // Code in the conversation: the function behind a selected box or arrow with its cited lines marked, and the lines an
 // answer points at with its notes beside them. The server reads and checks it each time (core/src/code.ts); nothing
 // here decides what is real. Each block links out to the person's own editor at that line.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import { EDITORS, editorUrl, type EditorId } from './editor';
+import { highlightLines, languageOf } from './highlight';
 import type { CodeBlock, CodeView } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
@@ -44,6 +45,7 @@ function Block({ block, root, editor, before }: { block: CodeBlock; root: string
     // Only when it would otherwise be out of sight: a short block stays at its top.
     if (el && first && first.offsetTop - el.offsetTop + first.offsetHeight > el.clientHeight) el.scrollTop = Math.max(0, first.offsetTop - el.offsetTop - 48);
   }, [block.file, block.start, block.cited.join(',')]);
+  const pieces = useMemo(() => highlightLines(block.lines, languageOf(block.file)), [block.file, block.lines.join('\n')]);
   const cited = new Set(block.cited);
   const notes = new Map(block.notes.map((n) => [n.line, n.note]));
   const open = block.cited[0] ?? block.start;
@@ -64,7 +66,7 @@ function Block({ block, root, editor, before }: { block: CodeBlock; root: string
             return (
               <div key={n} data-at={at(block.file, n)} className={cls('code-line', cited.has(n) && 'cited', notes.has(n) && 'noted')}>
                 <span className="code-n">{n}</span>
-                <span className="code-t">{text || ' '}</span>
+                <span className="code-t">{text ? (pieces[i] ?? []).map((p, j) => (p.kind ? <span key={j} className={p.kind}>{p.text}</span> : p.text)) : ' '}</span>
                 {notes.has(n) && <span className="code-note">{notes.get(n)}</span>}
               </div>
             );

@@ -238,7 +238,8 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   CLI's Agent SDK session has no capture tool yet, so there it can only use `image` and `sketch`.
 - **Code** (`core/src/code.ts`, `viewer/src/code.tsx`, `code.css`, `editor.ts`): selecting a box or arrow shows its
   code in its bubble, once "Show the code" is opened: the function it names, or the one its cited line is in (whole when short, the lines around the
-  citation when long, plain lines for a language the facts don't parse), with cited lines marked. `codeOf` builds it
+  citation when long, plain lines for a language the facts don't parse), with cited lines marked, coloured by language (`highlight.ts`, Prism tokens built as React elements; a language
+  it doesn't list shows plain). With the code open the bubble starts bigger (600px, CSS `:has`). `codeOf` builds it
   on request (`GET /api/maps/<id>/code?item=`), locating lines with the checker's own `checkEvidence`, and
   `when=before` reads the commit a map of a change is compared with. Citation chips open the code at their line (and close it again; there's no separate show/hide link). An answer
   adds to the map only when seeing it drawn helps answer the question; Claude decides (there is no expand button). And each

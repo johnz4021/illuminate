@@ -33,3 +33,31 @@
 /* On the reply that is lit (drawn dark), the code keeps its own light-on-dark or dark-on-light look. */
 .card-focus .code-editor { color: var(--focus-muted, var(--muted)); }
 .card-focus .code-editor select { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* Syntax colours (highlight.ts), in the app's palette, for light and dark. Later rules win where tokens nest. */
+.code-block {
+  --syn-comment: #858c87; --syn-keyword: #8b3fa8; --syn-string: #2b7a4f; --syn-number: #a8580c; --syn-function: #1f5fa8;
+  --syn-type: #0f6e6b; --syn-property: #7a5a12; --syn-punct: #5d6560;
+}
+@media (prefers-color-scheme: dark) {
+  .code-block {
+    --syn-comment: #7f8984; --syn-keyword: #d29bff; --syn-string: #85d6a3; --syn-number: #f0b25e; --syn-function: #7fb8ff;
+    --syn-type: #5cc2bd; --syn-property: #e3c27e; --syn-punct: #a3ada8;
+  }
+}
+.code-t .tok-punctuation, .code-t .tok-operator { color: var(--syn-punct); }
+.code-t .tok-property, .code-t .tok-attr-name, .code-t .tok-variable, .code-t .tok-parameter, .code-t .tok-key { color: var(--syn-property); }
+.code-t .tok-number, .code-t .tok-boolean, .code-t .tok-constant, .code-t .tok-symbol, .code-t .tok-char { color: var(--syn-number); }
+.code-t .tok-string, .code-t .tok-template-string, .code-t .tok-attr-value, .code-t .tok-regex, .code-t .tok-url { color: var(--syn-string); }
+.code-t .tok-class-name, .code-t .tok-builtin, .code-t .tok-namespace, .code-t .tok-tag, .code-t .tok-selector, .code-t .tok-type-definition, .code-t .tok-lifetime-annotation { color: var(--syn-type); }
+.code-t .tok-function, .code-t .tok-function-definition, .code-t .tok-macro { color: var(--syn-function); }
+.code-t .tok-keyword, .code-t .tok-important, .code-t .tok-atrule, .code-t .tok-rule, .code-t .tok-directive { color: var(--syn-keyword); }
+.code-t .tok-interpolation-punctuation, .code-t .tok-interpolation .tok-punctuation { color: var(--syn-keyword); }
+.code-t .tok-comment, .code-t .tok-prolog, .code-t .tok-doctype, .code-t .tok-cdata { color: var(--syn-comment); font-style: italic; }
+.code-t .tok-comment * { color: inherit; }
+
+/* A selected box's bubble with its code open starts bigger, so the code is readable without resizing (a size the
+   person dragged to, kept in localStorage, still wins: it is set inline). */
+.box-bubble:has(.code-view) { width: 600px; }
+.box-bubble:has(.code-view) > .card-selected { max-height: min(var(--bubble-cap, 70vh), var(--bubble-max, 70vh)); }
+.box-bubble .code-lines { max-height: min(46vh, 520px); font-size: 12px; }
