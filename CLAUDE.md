@@ -95,7 +95,8 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
 - **Ask** (`explainer.ts`): first Claude sees the map, the code around its citations (`citedExcerpts`, plain code) and
   the repo's other maps, with no tools, and picks a `route`: `answer` (done, map unchanged), `code` (Claude explores the
   repo, resuming the explainer session; only this can add to the map, via `addToMap` in `core/src/edit.ts`, or propose
-  a fix), or `elsewhere` (a different part of the app: the answer is an `offer`, and the person chooses a new map,
+  a fix), or `elsewhere` (a different part of the app: the answer is an `offer` of a new map for their question in their own words,
+  never narrowed to one route or function, and the person chooses a new map,
   linked back through `meta.parent`, or an answer in words, `wordsOnly`, that draws nothing). A selection on the map
   always means `code`, never `elsewhere`. Additions that don't pass `check` are dropped, not shown as unconfirmed.
 - **Viewer layout**: the top bar only says which map this is (switcher, New map, Stop) and, in words, whether it still
@@ -113,6 +114,8 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   fix, the offer of a new map, or what it added (hideable). The reply lit on the map is drawn dark; "Show on the map"
   relights an earlier one. While it's open the question box sits at its bottom (one box, never two). It opens for an
   answer, Claude's progress or an error; closed, a button in the bottom-right corner reopens it (`history.tsx`).
+  It follows the newest turn (`follow.ts`): its start sits at the top, and stays there while code under replies loads,
+  until the person scrolls; a Latest button brings it back when the newest turn is out of view.
   A selected box or arrow is described in a bubble beside it on the map (`bubble.tsx`, which places it in screen space
   on the side with room, keeps it above the dock, and moves the camera once if the box or bubble wouldn't fit; a grip
   on its far bottom corner resizes it, remembered in localStorage), never
@@ -127,6 +130,10 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
 - **Arrow label words** (the `label` rule in `MAP_RULES`): an arrow reads as a sentence, "<from box> <label> <to box>",
   so a label says who does the next step when it isn't the box the arrow leaves ("then Alice claims", not "claims with
   secret" after a box about Bob).
+- **Every way in, and wrappers** (`MAP_RULES`): when what they ask about can happen more than one way, Claude draws each
+  way to where they meet; a function that fills in some of what it passes before calling another (the owner, a mode)
+  is its own box saying what it fills in. Both are Claude's judgement: in tests on a large repo the wrapper got its own
+  box about one time in three.
 - **Arrow labels** (`viewer/src/labels.ts`): once a layout is drawn, each label is checked against the boxes and the
   labels placed before it, and slides along its own arrow to the first clear spot; with none it becomes a dot that
   shows its words when pointed at. A missing connection's label is placed first and never becomes a dot; area titles
