@@ -50,6 +50,8 @@ type StepData = {
   ghost: Ghost | null;
   /** In the Before or After view a changed box is marked quietly (an edge and a small badge), and says which side this is. */
   quiet: 'before' | 'after' | null;
+  /** The way through this box is on, in its colour (see `branchFor`); none for what the ways share. */
+  branch?: Branch | null;
   /** Set on a journey map: the box is drawn as part of a user flow, with no code on it. */
   journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null; branch: Branch | null };
   onClick: (additive: boolean) => void;
@@ -110,8 +112,8 @@ function ChangeKey({ commit, when, onWhen }: { commit: string; when: When; onWhe
   );
 }
 /**
- * The branches of a journey, each in its own colour. Five colours, given out in the order the branches leave the main
- * path, so the same journey is coloured the same way every time. None is yellow (lit), red (missing or removed), green
+ * A map's ways through (`branch`), each in its own colour: a journey's branches, in the order they leave the main path,
+ * and any other map's in the order they first appear, so the same map is coloured the same way every time. None is yellow (lit), red (missing or removed), green
  * (added), amber (changed) or violet (proposed). A sixth branch starts the colours again.
  */
 const BRANCH_COLOURS = 5;
@@ -119,12 +121,14 @@ const BRANCH_COLOURS = 5;
 type Branch = { name: string; colour: number };
 const branchClass = (b: Branch | null | undefined) => b && `branch branch-${b.colour}`;
 
-/** The key to a journey with branches: the main path, and each branch in its colour. */
-function BranchKey({ branches }: { branches: readonly Branch[] }) {
+/** The key to a map's ways through: what they share (a journey's main path), and each way in its colour. */
+function BranchKey({ branches, journey }: { branches: readonly Branch[]; journey: boolean }) {
   return (
     <div className="change-key branch-key">
       <span className="change-key-title">Ways through</span>
-      <span className="key-item" title="What most people do, start to finish"><i className="key-swatch" />Main path</span>
+      {journey
+        ? <span className="key-item" title="What most people do, start to finish"><i className="key-swatch" />Main path</span>
+        : <span className="key-item" title="On every way through"><i className="key-swatch" />Shared</span>}
       {branches.map((b) => <span key={b.name} className="key-item"><i className={cls('key-swatch', branchClass(b))} />{b.name}</span>)}
     </div>
   );
@@ -181,7 +185,7 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
   return (
     // `nopan`: pressing on a step must not start a canvas pan, or the pan can swallow the click.
     <div
-      className={cls('step', 'nopan', `kind-${data.kind}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.quiet && 'quiet', data.ghost && 'ghost', data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
+      className={cls('step', 'nopan', `kind-${data.kind}`, !data.confirmed && 'unconfirmed', proposalClass(data.proposal), changeClass(data.change), data.quiet && 'quiet', data.ghost && 'ghost', branchClass(data.branch), data.selected && 'selected', data.hl && 'hl', data.dim && 'dim')}
       onClick={(e) => {
         e.stopPropagation();
         data.onClick(e.shiftKey || e.metaKey);
@@ -421,12 +425,14 @@ export function MapGraph(p: GraphProps) {
   const lit = useMemo(() => (hl ? new Set(nodesOf(p.map, [...hl])) : null), [hl, p.map]);
   const sel = p.selection;
 
-  // A journey with branches: each branch's colour, in the order the layout gave them out.
+  // The map's ways through (a journey's branches, two ways in, a proposal's options): each one's colour, in the order the
+  // layout gave them out.
   const branches = useMemo((): Branch[] => (layout?.layout.branches ?? []).map((name, i) => ({ name, colour: (i % BRANCH_COLOURS) + 1 })), [layout]);
   const branchNamed = (name: string | null | undefined): Branch | null => (name ? branches.find((b) => b.name === name) ?? null : null);
   /**
-   * The colour a box or arrow is drawn in, unless something it means matters more: a proposal, a change, a shadow, or a
-   * claim the checker couldn't confirm keeps its own look. An arrow with no branch of its own takes the branch of a box
+   * The colour a box or arrow is drawn in, unless something it means matters more: a change, a shadow, or a claim the
+   * checker couldn't confirm keeps its own look. A proposal keeps its colour, so the options of a change can be told
+   * apart: it stays dashed and badged as proposed, in its way's colour. An arrow with no branch of its own takes the branch of a box
    * at its end, so the way into a branch and back out of it are drawn in its colour too.
    */
   const branchFor = (kind: 'node' | 'edge', id: string, plain: boolean): Branch | null => {
@@ -476,6 +482,8 @@ export function MapGraph(p: GraphProps) {
       // A proposed addition may cite nothing and name no function yet.
       const at = n.evidence[0];
       const sub = n.symbol ? n.symbol.slice(n.symbol.indexOf('#') + 1) : at ? `${at.file.split('/').pop()}:${at.line}` : 'not in the code yet';
+      const check = p.report?.nodes[n.id];
+      const branch = branchFor('node', n.id, !!check && (check.status !== 'unconfirmed' || !!check.proposal) && !drawnAs(check.change?.kind ?? null) && !ghostOf(n.id));
       return [{
         id: n.id,
         type: 'step' as const,
@@ -501,7 +509,8 @@ export function MapGraph(p: GraphProps) {
           changeSize: changeSize(p.report?.nodes[n.id]?.change?.diff),
           ghost: ghostOf(n.id),
           quiet: view === 'both' ? null : view,
-          ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null, branch: branchFor('node', n.id, !!p.report && p.report.nodes[n.id]?.status !== 'unconfirmed' && !p.report.nodes[n.id]?.proposal && !drawnAs(p.report.nodes[n.id]?.change?.kind ?? null) && !ghostOf(n.id)) } }),
+          branch,
+          ...(l.flat && { journey: { w: box.w, h: box.h, shape: n.kind === 'choice' ? 'choice' as const : n.kind === 'action' ? 'action' as const : 'screen' as const, outside: n.kind === 'external', stage: stageAt.get(n.id) ?? null, show: pictured.includes(n.id) ? p.report?.screens?.[n.id]?.show ?? null : null, branch } }),
           onClick: (additive) => p.onSelect('nodes', n.id, additive),
         },
         draggable: false,
@@ -540,7 +549,7 @@ export function MapGraph(p: GraphProps) {
       const shadow = ghostOf(e.id) ?? ghostOf(e.from) ?? ghostOf(e.to);
       const isHl = on(e.id) || (!!lit && lit.has(e.from) && lit.has(e.to) && !hl);
       const variant = 'edge' as const;
-      const branch = branchFor('edge', e.id, !proposal && !change && !shadow);
+      const branch = branchFor('edge', e.id, !change && !shadow);
       return {
         id: `e:${e.id}`,
         source: e.from,
@@ -548,7 +557,7 @@ export function MapGraph(p: GraphProps) {
         ...handles(e.from, e.to),
         type: 'link' as const,
         className: cls('link', `link-${variant}`, !confirmed && 'unconfirmed', proposalClass(proposal), changeClass(change), shadow && 'ghost', branchClass(branch), on(e.id) && 'hl', !!hl && !on(e.id) && 'dim', sel.edges.includes(e.id) && 'selected'),
-        markerEnd: marker(shadow ? 'var(--line)' : proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : change === 'added' ? 'var(--ok)' : change === 'removed' ? 'var(--dead)' : branch ? `var(--branch-${branch.colour})` : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
+        markerEnd: marker(shadow ? 'var(--line)' : branch ? `var(--branch-${branch.colour})` : proposal?.state === 'pending' && proposal.kind !== 'remove' ? 'var(--ai)' : change === 'added' ? 'var(--ok)' : change === 'removed' ? 'var(--dead)' : on(e.id) ? 'var(--path)' : 'var(--line-strong)'),
         zIndex: 1,
         data: {
           label: e.label,
@@ -761,7 +770,7 @@ export function MapGraph(p: GraphProps) {
         <Panel position="top-left">
           <div className="map-keys">
             {p.report?.since?.commit && <ChangeKey commit={p.report.since.commit.slice(0, 7)} when={view} onWhen={setWhen} />}
-            {branches.length > 0 && <BranchKey branches={branches} />}
+            {branches.length > 0 && <BranchKey branches={branches} journey={p.map.view === 'journey'} />}
           </div>
         </Panel>
       )}

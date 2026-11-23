@@ -85,6 +85,28 @@ describe('a journey map', () => {
     expect(parseMap(JSON.parse(JSON.stringify(r.map)))).toEqual({ ok: true, map: r.map });
   });
 
+  it('lets any map name its ways through, a proposal\'s options included', () => {
+    const cites = [{ file: 'src/a.ts', line: 1, text: 'x' }];
+    const r = parseMap({
+      version: 1,
+      question: 'How would (a) or (b) change it?',
+      areas: [{ id: 'x', label: 'Map rules' }],
+      nodes: [
+        { id: 'rules', area: 'x', name: 'Rules', evidence: cites },
+        { id: 'a', area: 'x', name: 'Wrapper rule', branch: 'A: prompt rule', proposed: { kind: 'add' } },
+        { id: 'b', area: 'x', name: 'Called from list', branch: 'B: computed list', proposed: { kind: 'add' } },
+      ],
+      edges: [
+        { id: 'ea', from: 'rules', to: 'a', kind: 'then', label: 'gains', branch: 'A: prompt rule', proposed: { kind: 'add' } },
+        { id: 'eb', from: 'rules', to: 'b', kind: 'then', label: 'feeds', branch: 'B: computed list', proposed: { kind: 'add' } },
+      ],
+    });
+    if (!r.ok) throw new Error(r.problems.join('\n'));
+    expect(r.map.view).toBeUndefined();
+    expect(r.map.nodes.map((n) => n.branch ?? null)).toEqual([null, 'A: prompt rule', 'B: computed list']);
+    expect(r.map.edges.map((e) => e.branch)).toEqual(['A: prompt rule', 'B: computed list']);
+  });
+
   it('wants a branch named in a few words', () => {
     const named = (branch: unknown) => parseMap({ ...raw, nodes: raw.nodes.map((n: any) => (n.id === 'j4' ? { ...n, branch } : n)) });
     expect(named('Saves for later').ok).toBe(true);

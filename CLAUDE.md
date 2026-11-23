@@ -209,6 +209,13 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   order they leave the main path, with a key at the top left under the change key. Without branches the old layout
   is used unchanged. `npm run preview` returns the journey fixture (`care-app.journey.json`, three branches) for a
   question with "journey" or "go through" in it, or set `PREVIEW_QUESTION`.
+- **Ways through** (`BRANCH_RULES` in `prompts.ts`, `branch` in the format, `branchNames` in `viewer/src/layout.ts`,
+  `BranchKey` in `graph.tsx`): any map, not only a journey, can name the ways through it on their boxes and arrows (two
+  ways in that meet later, an error path, the options of a change to compare: "A: …", "B: …"); what the ways share
+  carries none. Drawing only, the checker ignores it. Each way gets one of five colours (`journey.css`) and the key
+  says "Shared" for the rest ("Main path" on a journey). A journey also places its branches (`layoutBranches`); every
+  other layout leaves positions alone and only names them for the key. A proposed box on a way keeps its dashed look
+  and badge, in that way's colour, so options can be told apart.
 - **Timelines** (`TIMELINE_RULES` in `prompts.ts`, `view: 'timeline'` in the format, `layoutLanes` in
   `viewer/src/layout.ts`): Claude's call, like a journey, for parties that take turns where the order between them is
   the point (a handshake, a login through an outside service, a payment and its webhook, a swap across chains). Each

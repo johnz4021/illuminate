@@ -31,6 +31,16 @@ const MAP_RULES = [
 ];
 
 /**
+ * Ways through: a name on the boxes and arrows of one way through, drawn in its own colour with a key. Shared by every
+ * kind of map (a journey's branches, two ways in, the options of a proposal); a journey adds how its branches are laid out.
+ */
+export const BRANCH_RULES = [
+  '## Ways through (`branch`, on any kind of map)',
+  '- When the answer has more than one way through and the difference matters (two ways in that meet later, an error or cancel path, the options of a change they asked to compare), give every box and arrow that is on only one of them a `"branch"`: a short name for that way in plain words ("Wallet sign-up", "Payment fails", "A: prompt rule"), the same name on every box and arrow of it. What the ways share carries no branch. Each way is drawn in its own colour, with a key.',
+  '- Keep to the ways that matter, at most 5. A map with one way through has no branches.',
+];
+
+/**
  * A timeline: for parties that take turns, where the order between them is the point. Drawn with a lane per area and
  * time left to right, so a flow that goes back and forth between places reads in order instead of zigzagging.
  */
@@ -51,7 +61,7 @@ const JOURNEY_RULES = [
   '- Each box and arrow still cites the code that makes it so: the component, the handler, the redirect.',
   '- Show where each step happens: define the pages the journey goes through in `pages`, one for each state of a screen the person sees (see Screens), and give each screen box a wireframe of its page with its own part marked. Steps in the same state share one page. A box whose page can\'t be drawn usefully (nothing recognisable on it, or it isn\'t in this repo) gets no `screen`: no picture is better than a thin one.',
   '- Where the journey stops short (a button that leads nowhere, a result with no screen, nothing ever telling the person what happened), that is a break: record it as an absence.',
-  '- One main path, with branches: the main path is what most people do from start to finish, and its boxes and arrows carry no `branch`. It is drawn on one straight line, left to right. Every box and arrow off it carries `"branch"`: a short name for that way through, in the person\'s words ("Saves for later", "Payment fails"), the same name on every box and arrow of it. An arrow that leads from a branch back to the main path carries that branch too. Each branch is drawn below the step it leaves from, in its own colour.',
+  '- One main path, with branches (see Ways through): the main path is what most people do from start to finish, and its boxes and arrows carry no `branch`; each way off it is a branch named in the person\'s words ("Saves for later", "Payment fails"). The main path is drawn on one straight line, left to right, and each branch below the step it leaves from. An arrow that leads from a branch back to the main path carries that branch too.',
   '- A branch leaves from a `choice`, or from any step where things can go another way (an error, a cancel, a link elsewhere). Keep to the branches that matter, at most 5. A journey with only one way through has no branches.',
   '- The walkthrough is told as the person\'s experience too: down the main path first, one stop per screen, then one stop for each branch.',
 ];
@@ -64,6 +74,7 @@ export const PROPOSAL_RULES = [
   '- `"kind": "change"` or `"remove"`: code that is there today and would be changed or deleted. Cite it like any other claim.',
   '- `note`: one plain sentence saying what would change and why.',
   '- Every new box must connect, through arrows, to a box that exists. Keep it small: only the boxes and arrows the change needs.',
+  '- When they ask to compare ways of making a change, each option is a way through (see Ways through) named for it ("A: …", "B: …"), drawn as far as where its effect shows (what the person sees, or what the code does differently), so the options can be told apart at a glance.',
   '- On a screen: a box with `proposed` may have a sketch with elements marked `"proposed": true` for what would be added to it, and a new screen is a new box whose sketch is all new.',
   '- A program checks proposals against the code too. Proposing to add what the code already has, or to change or remove what it doesn\'t have, is sent back.',
 ];
@@ -110,6 +121,8 @@ export function makerPrompt(question: string, headStart: string): string {
     `## The question\n"${question}"`,
     '',
     ...MAP_RULES,
+    '',
+    ...BRANCH_RULES,
     '',
     ...TIMELINE_RULES,
     '',
@@ -320,6 +333,8 @@ export function explainerPrompt(
     '- When the question is about what the person sees at a step ("what does this look like?", "where is that button?"), answer with a picture: put `{ "node": "<box id>", "screen": { … } }` in `screens`, for a box already on the map or one in `add` (see Screens below). In an answer a wireframe can only use a page already in the map\'s `pages`; when the map has no page for it, a sketch of the component will do. Otherwise leave `screens` out: most questions don\'t need one.',
     '',
     ...EVIDENCE_RULES,
+    '',
+    ...BRANCH_RULES,
     '',
     ...PROPOSAL_RULES,
     '',

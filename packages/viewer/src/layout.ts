@@ -21,7 +21,7 @@ export type Layout = {
   rowTops?: number[];
   /** A journey with branches: the path each arrow takes, by link id (`e:`, `a:` or `x:` and its id). */
   routes?: Record<string, Route>;
-  /** A journey with branches: their names, in the order their colours are given out. */
+  /** The ways through the map names (`branch`), in the order their colours are given out (see `branchNames`). */
   branches?: string[];
   /** A timeline: each area a lane across the map, time left to right (`layoutLanes`). */
   lanes?: boolean;
@@ -119,8 +119,23 @@ function withoutIds(map: CodeMap, ids: ReadonlySet<string>): CodeMap {
  * be without them, and the additions are fitted around it.
  */
 export async function layoutMap(map: CodeMap, extra: readonly ExtraEdge[] = [], added: ReadonlySet<string> = new Set(), pictured: ReadonlySet<string> = new Set()): Promise<Layout> {
-  // A journey is one line of boxes, so anything added is simply laid out with the rest.
+  // A journey is one line of boxes, so anything added is simply laid out with the rest. Its layout places its branches
+  // and names them itself.
   if (map.view === 'journey') return hasBranches(map) ? layoutBranches(map, extra, pictured) : layoutJourney(map, extra, pictured);
+  // Any other map only colours its ways through, so the layout just names them for the key.
+  const named = branchNames(map);
+  const l = await arrange(map, extra, added);
+  return named.length ? { ...l, branches: named } : l;
+}
+
+/** The ways through a map names (`branch`), in the order they first appear among its boxes, then its arrows. */
+export function branchNames(map: CodeMap): string[] {
+  const names: string[] = [];
+  for (const x of [...map.nodes, ...map.edges]) if (x.branch && !names.includes(x.branch)) names.push(x.branch);
+  return names;
+}
+
+async function arrange(map: CodeMap, extra: readonly ExtraEdge[], added: ReadonlySet<string>): Promise<Layout> {
   // A timeline puts everything in its place in time, what answers added included (so known boxes can move).
   if (map.view === 'timeline') return layoutLanes(map, extra);
   const addedNodes = map.nodes.filter((n) => added.has(n.id));
@@ -633,7 +648,9 @@ export function sides(map: CodeMap, layout: Layout, from: string, to: string): [
 export function layoutKey(map: CodeMap, extra: readonly ExtraEdge[] = [], added: readonly string[] = [], pictured: readonly string[] = []): string {
   return JSON.stringify([
     map.view ?? null,
-    map.view === 'journey' ? [map.nodes.map((n) => n.kind), [...pictured].sort(), ...(hasBranches(map) ? [[...map.nodes, ...map.edges].map((x) => x.branch ?? '')] : [])] : null,
+    map.view === 'journey' ? [map.nodes.map((n) => n.kind), [...pictured].sort()] : null,
+    // Ways through: a journey places its branches by them, and every map's key names them.
+    [...map.nodes, ...map.edges].map((x) => x.branch ?? ''),
     [...added].sort(),
     map.areas.map((a) => a.id),
     map.nodes.map((n) => `${n.id}@${n.area}`),

@@ -99,9 +99,10 @@ export const GitRef = z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9_./~^-]{0,99}$/, 
 export const Area = z.object({ id: Id, label: z.string().min(1).max(40) });
 
 /**
- * On a journey: the way through that this box or arrow is on, when it isn't the main path (what most people do, start
- * to finish), named in the person's words ("Saves for later", "Payment fails"). No `branch` is the main path. It says
- * how to draw what is already checked, not something about the code, so the checker leaves it alone.
+ * The way through that this box or arrow is on, on any kind of map: a journey's branch off the main path ("Payment
+ * fails"), one of two ways in ("Wallet sign-up"), or one option of a proposal ("A: prompt rule"). No `branch` is what
+ * the ways share (on a journey, the main path). It says how to draw what is already checked, not something about the
+ * code, so the checker leaves it alone.
  */
 export const Branch = z.string().min(1).max(60).regex(/\S/, 'a branch is named in words');
 
@@ -119,7 +120,7 @@ export const Node = z.object({
   proposed: Proposal.optional(),
   /** Only on a map with `since`: this code was there at that commit and is gone now. Its `evidence` cites it as it was. */
   removed: z.boolean().optional(),
-  /** On a journey: the branch this box is on (see `Branch`); none for the main path. */
+  /** The way through this box is on (see `Branch`); none for what the ways share. */
   branch: Branch.optional(),
 });
 
@@ -134,7 +135,7 @@ export const Edge = z.object({
   proposed: Proposal.optional(),
   /** Only on a map with `since`: this connection was there at that commit and is gone now. Its `evidence` cites it as it was. */
   removed: z.boolean().optional(),
-  /** On a journey: the branch this arrow is on, including the arrow that leads back from it to the main path. */
+  /** The way through this arrow is on (see `Branch`), including an arrow that leads from it back to what the ways share. */
   branch: Branch.optional(),
 });
 

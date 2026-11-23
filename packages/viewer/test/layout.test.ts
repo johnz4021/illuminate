@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseMap } from '@illuminate/core';
-import { hasBranches, layoutKey, layoutMap, rowOf, sides, type Box } from '../src/layout';
+import { branchNames, hasBranches, layoutKey, layoutMap, rowOf, sides, type Box } from '../src/layout';
 
 const map = (() => {
   const r = parseMap(JSON.parse(readFileSync(fileURLToPath(new URL('../../core/test/fixtures/care-app.map.json', import.meta.url)), 'utf8')));
@@ -286,5 +286,55 @@ describe('layoutMap on a timeline', () => {
 
   it('lays out again when a map becomes a timeline', () => {
     expect(layoutKey(swap)).not.toBe(layoutKey({ ...swap, view: undefined }));
+  });
+});
+
+describe('ways through on any kind of map', () => {
+  // Two ways to make an account that meet at the same record, and a proposal with two options.
+  const cites = [{ file: 'src/accounts.ts', line: 1, text: 'x' }];
+  const twoWays = (view?: 'timeline') => {
+    const r = parseMap({
+      version: 1,
+      question: 'Where does creating an account happen?',
+      ...(view ? { view } : {}),
+      areas: [{ id: 'web', label: 'Dashboard' }, { id: 'chain', label: 'On chain' }],
+      nodes: [
+        { id: 'form', area: 'web', name: 'API-key form', evidence: cites, branch: 'API key' },
+        { id: 'wallet', area: 'web', name: 'Wallet sign-up', evidence: cites, branch: 'Wallet' },
+        { id: 'owner', area: 'chain', name: 'Wallet becomes owner', evidence: cites, branch: 'Wallet' },
+        { id: 'record', area: 'chain', name: 'Account recorded', evidence: cites },
+      ],
+      edges: [
+        { id: 'e1', from: 'form', to: 'record', kind: 'then', label: 'server writes', evidence: cites },
+        { id: 'e2', from: 'wallet', to: 'owner', kind: 'then', label: 'wallet signs', evidence: cites },
+        { id: 'e3', from: 'owner', to: 'record', kind: 'then', label: 'then creates', evidence: cites },
+      ],
+    });
+    if (!r.ok) throw new Error(r.problems.join('\n'));
+    return r.map;
+  };
+
+  it('names the ways for the key, in the order they first appear', () => {
+    expect(branchNames(twoWays())).toEqual(['API key', 'Wallet']);
+    expect(branchNames(map)).toEqual([]);
+  });
+
+  it('hands them back from the area layout and the timeline, so any map gets the colours and key', async () => {
+    expect((await layoutMap(twoWays())).branches).toEqual(['API key', 'Wallet']);
+    expect((await layoutMap(twoWays('timeline'))).branches).toEqual(['API key', 'Wallet']);
+    expect((await layoutMap(map)).branches).toBeUndefined();
+  });
+
+  it('lays the map out the same with or without its ways named', async () => {
+    const named = await layoutMap(twoWays());
+    const plain = twoWays();
+    for (const x of [...plain.nodes, ...plain.edges]) delete x.branch;
+    expect((await layoutMap(plain)).nodes).toEqual(named.nodes);
+  });
+
+  it('draws it again when a way is renamed, since the key changes', () => {
+    const renamed = twoWays();
+    renamed.nodes[0]!.branch = 'Through the server';
+    expect(layoutKey(renamed)).not.toEqual(layoutKey(twoWays()));
   });
 });
