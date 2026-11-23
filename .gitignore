@@ -15,3 +15,7 @@ coverage/
 # Private notes: customer interviews and saved AI chat transcripts stay on this machine.
 CUSTOMER_DISCOVERY.md
 .specstory/
+
+# Editor settings (SpecStory, Cursor) stay local.
+.vscode/
+.cursorindexingignore
