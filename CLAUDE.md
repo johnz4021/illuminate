@@ -68,10 +68,12 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   Codex reads the same marketplace and installs `plugin/` from `plugin/.codex-plugin/plugin.json` (`codex plugin
   marketplace add johnz4021/illuminate`, then `codex plugin add illuminate@illuminate`).
 - Publishing: `npm run release` builds `release/` (server, core and facts bundled by esbuild into one file, plus the
-  built viewer; third-party packages stay pinned dependencies). Bump the version in `release/package.json`,
+  built viewer; third-party packages stay pinned dependencies, except the Agent SDK, an optional peer: it brings a ~250 MB Claude
+  Code binary only the standalone CLI uses, and downloading it made the plugin's first `npx` start too slow for Claude
+  Code to wait for, so `sdkAgent` loads it on first use). Bump the version in `release/package.json`,
   `plugin/.claude-plugin/plugin.json`, `plugin/.codex-plugin/plugin.json` and the `npx` args (in both manifests'
   servers: `plugin.json` inline for Claude Code, `plugin/.codex-mcp.json` for Codex, which rejects an inline object)
-  together, then `cd release && npm publish --access public`.
+  and the `npx` command in the README's "If it doesn't work" and the skill's troubleshooting step 5 together, then `cd release && npm publish --access public`.
 - `@illuminate/facts` was carried over from the hackathon harness (`../Speedhacks-project/packages/core`) with its tests.
   The harness is a separate project; don't import from it or edit it from here.
 - Test fixtures: `packages/facts/test/{alias-repo,fixture-py,fixture-go}` and `packages/core/test/fixtures/care-app`

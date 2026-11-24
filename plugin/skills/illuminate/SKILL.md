@@ -61,8 +61,13 @@ start. It runs on Node (20.19 or later, started with `npx`), so check that befor
 4. If Node was already new enough, check Claude Code itself: run `claude --version`. illuminate needs 2.1.275 or later.
    If it is older, tell them to run `claude update` in a terminal, then quit and reopen Claude Code and ask again. Don't
    run the update yourself: it replaces the program this session is running in.
-5. If both are new enough, the cause is something else. Don't install anything: tell them to run `/mcp`, which shows
-   the illuminate server's error and can reconnect it.
+5. If both are new enough, the first start most likely took too long: Claude Code starts illuminate with `npx`, which
+   downloads it the first time, and gives up if that's slow. Download it and see whether it starts by running
+   `npx -y @johnz4021/illuminate@0.5.10 channel </dev/null` (it starts and exits straight away; allow it a few
+   minutes). If that exits without an error, tell them to run `/mcp`, choose plugin:illuminate:illuminate and
+   Reconnect, then ask their question again. If it prints an error, tell them the error in plain words; for one about
+   a missing `@oxc-parser/binding-…`, offer to delete `~/.npm/_npx` and run the command again. Don't install anything
+   else.
 
 **Outside Claude Code**, run the CLI from the repo root (or pass `--repo`). It needs `ANTHROPIC_API_KEY`:
 
