@@ -131,9 +131,9 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   so a label says who does the next step when it isn't the box the arrow leaves ("then Alice claims", not "claims with
   secret" after a box about Bob).
 - **Every way in, and wrappers** (`MAP_RULES`): when what they ask about can happen more than one way, Claude draws each
-  way to where they meet; a function that fills in some of what it passes before calling another (the owner, a mode)
-  is its own box saying what it fills in. Both are Claude's judgement: in tests on a large repo the wrapper got its own
-  box about one time in three.
+  way to where they meet. A wrapper gets no box of its own: it folds into the box it serves (like any step that hands
+  on), and when it fills in or changes what it passes (the owner, a mode), that box's explanation says so and cites
+  the wrapper's line, so its code opens with the box. Both are Claude's judgement, not checked.
 - **Arrow labels** (`viewer/src/labels.ts`): once a layout is drawn, each label is checked against the boxes and the
   labels placed before it, and slides along its own arrow to the first clear spot; with none it becomes a dot that
   shows its words when pointed at. A missing connection's label is placed first and never becomes a dot; area titles

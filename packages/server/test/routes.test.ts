@@ -12,11 +12,11 @@ describe('more than one way in', () => {
     expect(p).toContain('draw each way to where they meet');
   });
 
-  it('gives a wrapper its own box that says what it fills in', () => {
+  it('folds a wrapper into the box it serves, which says what it fills in and cites it', () => {
     const p = makerPrompt('Where does creating an account happen?', '');
-    expect(p).toContain('A wrapper is not just handing on');
-    expect(p).toContain('is its own box, cited in the wrapper itself');
-    expect(p).toContain('says what it fills in and how');
+    expect(p).not.toContain('A wrapper is not just handing on');
+    expect(p).toContain('If one of them fills in or changes what it passes along');
+    expect(p).toContain("say that in the box's `explain` and cite its line too");
   });
 
   it('keeps the question for a new map in their own words, without narrowing it', () => {
