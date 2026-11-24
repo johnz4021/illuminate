@@ -181,6 +181,10 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   is being written (`settledProposals`) was misread: the maker sends it back and the explainer doesn't draw it. In an
   answer, new proposed boxes go in `add` and existing ones are marked through `propose`. A `then` arrow or a box with
   no `symbol` can't be detected as built and stays proposed. A sketch element may be `proposed`, and the checker drops that mark once the file has its text.
+  A map with something still proposed gets a switch in its key (`PlanKey` in `graph.tsx`, `viewer/src/plan.ts`): Now
+  (what is proposed is a faint shadow), With the change (what is new is solid with a "New" badge, what would go is a
+  shadow), or Both (the change drawn on top, dashed: the default). When the proposals are on two or more ways through,
+  each option is a view of its own, and the other option's parts are shadows. Like Before / After, nothing moves.
 - **Changes** (`since` and `removed` in `core/src/format.ts`, `core/src/base.ts`, `server/src/changes.ts`,
   `CHANGE_RULES` in `prompts.ts`): asked what a change did, Claude draws the code as it is now and sets `since` to the
   commit to compare with ("HEAD" for work not committed yet). The maker pins that to a full hash (`pinned` in

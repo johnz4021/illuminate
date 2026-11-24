@@ -24,6 +24,7 @@ import { placeLabels, type LabelInput, type LabelPlace, type Rect } from './labe
 import { JOURNEY_ROW_GAP, layoutKey, layoutMap, rowOf, sides, type ExtraEdge, type Layout, type Route } from './layout';
 import type { Sel, View } from './state';
 import { ScreenThumb } from './screen';
+import { planGhost, planLabel, planMarks, planViews, type Plan } from './plan';
 import type { CheckReport, CodeMap, FixProposal, ScreenShow } from './types';
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
@@ -56,14 +57,17 @@ type StepData = {
   journey?: { w: number; h: number; shape: 'screen' | 'action' | 'choice'; outside: boolean; stage: string | null; show: ScreenShow | null; branch: Branch | null };
   onClick: (additive: boolean) => void;
 };
-type Proposed = { kind: 'add' | 'change' | 'remove'; state: 'pending' | 'done' };
+/** `quiet`: shown as part of the code with the change made (`plan.ts`), so drawn solid, with a plain badge. */
+type Proposed = { kind: 'add' | 'change' | 'remove'; state: 'pending' | 'done'; quiet?: boolean };
 /** What a proposal is called on the map, by kind, while it is pending and once the code shows it done. */
 const PROPOSAL: Record<Proposed['kind'], { pending: string; done: string; mark: string; title: string }> = {
   add: { pending: 'Proposed', done: 'Now in the code', mark: '+', title: 'Proposed: not in the code yet' },
   change: { pending: 'Would change', done: 'Changed', mark: '~', title: 'Proposed: this code would change' },
   remove: { pending: 'Would be removed', done: 'Removed', mark: '−', title: 'Proposed: this code would be removed' },
 };
-const proposalClass = (p: Proposed | null | undefined) => p && `proposal proposal-${p.kind} proposal-${p.state}`;
+const proposalClass = (p: Proposed | null | undefined) => p && `proposal proposal-${p.kind} proposal-${p.state}${p.quiet && p.state === 'pending' ? ' proposal-quiet' : ''}`;
+/** A proposal's badge in the version with the change made: what it is there, not what is proposed. */
+const QUIET: Record<Proposed['kind'], string> = { add: 'New', change: 'Changed', remove: 'Removed' };
 type Change = 'added' | 'changed' | 'removed';
 /** What a difference from the commit a map is compared with is called on the map. */
 const CHANGE: Record<Change, { label: string; mark: string; title: string }> = {
@@ -73,10 +77,13 @@ const CHANGE: Record<Change, { label: string; mark: string; title: string }> = {
 };
 const changeClass = (c: Change | null | undefined) => c && `change change-${c}`;
 /** Not in the version being shown: added after it (`later`), or removed before it (`gone`). */
-type Ghost = 'later' | 'gone';
+type Ghost = 'later' | 'gone' | 'unbuilt' | 'other' | 'dropped';
 const GHOST: Record<Ghost, { label: string; title: string }> = {
   later: { label: 'Not there yet', title: 'Added after this version of the code' },
   gone: { label: 'Gone', title: 'Removed: it was in the code before, and isn’t now' },
+  unbuilt: { label: 'Not built yet', title: 'Proposed: only there with the change' },
+  other: { label: 'Other option', title: 'Part of another option of the change, not this one' },
+  dropped: { label: 'Would go', title: 'Proposed to be removed: not there with the change' },
 };
 /** "+3 −1" from a changed box's lines, so the size of the change shows without opening it. */
 function changeSize(diff: readonly string[] | undefined): string | null {
@@ -130,6 +137,24 @@ function BranchKey({ branches, journey }: { branches: readonly Branch[]; journey
         ? <span className="key-item" title="What most people do, start to finish"><i className="key-swatch" />Main path</span>
         : <span className="key-item" title="On every way through"><i className="key-swatch" />Shared</span>}
       {branches.map((b) => <span key={b.name} className="key-item"><i className={cls('key-swatch', branchClass(b))} />{b.name}</span>)}
+    </div>
+  );
+}
+/** The key to a map with a proposal: the code now, with the change (or each of its options), or both at once. */
+function PlanKey({ views, plan, onPlan, shown }: { views: readonly Plan[]; plan: Plan; onPlan: (p: Plan) => void; shown: ReadonlySet<string> }) {
+  return (
+    <div className="change-key plan-key">
+      <div className="seg" role="group" aria-label="Which version of the proposal to show">
+        {views.map((v) => {
+          const { label, title } = planLabel(v);
+          return <button key={v} className={cls('seg-btn', plan === v && 'on')} title={title} aria-pressed={plan === v} onClick={() => onPlan(v)}>{label}</button>;
+        })}
+      </div>
+      <span className="change-key-title">{planLabel(plan).heading}</span>
+      {shown.has('new') && <span className="key-item"><i className="key-swatch key-new" />New</span>}
+      {shown.has('unbuilt') && <span className="key-item"><i className="key-swatch key-ghost" />Not built yet</span>}
+      {shown.has('other') && <span className="key-item"><i className="key-swatch key-ghost" />Other option</span>}
+      {shown.has('dropped') && <span className="key-item"><i className="key-swatch key-ghost" />Would go</span>}
     </div>
   );
 }
@@ -196,7 +221,7 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
       {(KIND[data.kind] || data.fresh || data.screen || data.proposal || data.change || data.ghost) && (
         <div className="step-head">
           {data.ghost && <span className="badge-ghost" title={GHOST[data.ghost].title}>{GHOST[data.ghost].label}</span>}
-          {data.proposal && <span className="badge-proposal">{PROPOSAL[data.proposal.kind][data.proposal.state]}</span>}
+          {data.proposal && <span className="badge-proposal">{data.proposal.quiet && data.proposal.state === 'pending' ? QUIET[data.proposal.kind] : PROPOSAL[data.proposal.kind][data.proposal.state]}</span>}
           {data.change && <span className="badge-change" title={CHANGE[data.change].title}>{data.quiet === 'before' ? 'Changes later' : CHANGE[data.change].label}{data.changeSize && !data.quiet && <span className="change-size"> {data.changeSize}</span>}</span>}
           {KIND[data.kind] && !data.proposal && !data.change && !data.ghost && <><i className="step-mark" aria-hidden="true">{KIND[data.kind]![1]}</i>{KIND[data.kind]![0]}</>}
           {data.screen && <span className="badge-screen" title="Select this step to see the screen">▣ Screen</span>}
@@ -205,7 +230,7 @@ function StepNode({ data }: NodeProps<StepNodeT>) {
       )}
       <div className="step-name" title={data.name}>{data.name}</div>
       <div className="step-code" title={data.proposal?.state === 'pending' ? PROPOSAL[data.proposal.kind].title : data.confirmed ? 'Confirmed against the code' : "The checker couldn't confirm this against the code"}>
-        {data.proposal?.state === 'pending' && data.proposal.kind === 'add'
+        {(data.proposal?.state === 'pending' && data.proposal.kind === 'add') || data.ghost === 'unbuilt' || data.ghost === 'other'
           ? <span className="pmark">+</span>
           : data.proposal?.state === 'done' && data.proposal.kind !== 'add'
             ? <span className="pmark">{PROPOSAL[data.proposal.kind].mark}</span>
@@ -335,7 +360,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
           }}
         >
           {data.variant === 'absence' && <span className="gap-q" aria-hidden="true">?</span>}
-          {data.proposal && <span className="pmark" title={data.proposal.state === 'done' ? PROPOSAL[data.proposal.kind].done : PROPOSAL[data.proposal.kind].title}>{data.proposal.state === 'done' && data.proposal.kind === 'add' ? '✓' : PROPOSAL[data.proposal.kind].mark}</span>}
+          {data.proposal && !(data.proposal.quiet && data.proposal.state === 'pending' && data.proposal.kind === 'add') && <span className="pmark" title={data.proposal.state === 'done' ? PROPOSAL[data.proposal.kind].done : PROPOSAL[data.proposal.kind].title}>{data.proposal.state === 'done' && data.proposal.kind === 'add' ? '✓' : PROPOSAL[data.proposal.kind].mark}</span>}
           {data.change && <span className="cmark" title={CHANGE[data.change].title}>{CHANGE[data.change].mark}</span>}
           <span className="link-text">{data.label}</span>
           {!data.confirmed && data.variant === 'edge' && <span className="q"> ?</span>}
@@ -399,13 +424,40 @@ export function MapGraph(p: GraphProps) {
   const [when, setWhen] = useState<When>('both');
   const comparing = !!p.report?.since?.commit;
   const view: When = comparing ? when : 'both';
-  // Labels' places for one layout (and the arrows shown in it); a new layout starts with labels where their arrows put them.
-  const placeKey = JSON.stringify([layout?.key ?? null, view, ghost?.id ?? null]);
   const changeOf = (id: string): Change | null => p.report?.nodes[id]?.change?.kind ?? p.report?.edges[id]?.change?.kind ?? null;
+  // On a map with a proposal: the code now, with the change (or one of its options), or both at once (`plan.ts`).
+  const [planPick, setPlan] = useState<Plan>('both');
+  const planIn = useMemo(() => planViews(p.map, (kind, id) => (kind === 'node' ? p.report?.nodes[id] : p.report?.edges[id])?.proposal?.state === 'pending'), [p.map, p.report]);
+  const plan: Plan = planIn.includes(planPick) ? planPick : 'both';
+  /** The way through a box or arrow is on, for a proposal's options: an arrow's own, or a box's at its end. */
+  const wayOf = (id: string): string | null => {
+    const n = p.map.nodes.find((x) => x.id === id);
+    if (n) return n.branch ?? null;
+    const e = p.map.edges.find((x) => x.id === id);
+    const end = (nid: string | undefined) => p.map.nodes.find((x) => x.id === nid)?.branch;
+    return e?.branch ?? end(e?.to) ?? end(e?.from) ?? null;
+  };
+  const proposalOf = (id: string) => p.report?.nodes[id]?.proposal ?? p.report?.edges[id]?.proposal ?? null;
+  /** A proposal's look, unless the version shown leaves it out (as the code is now, or another option). */
+  const shownProposal = (id: string): Proposed | null => {
+    const pr = proposalOf(id);
+    return pr && planMarks(plan, pr, wayOf(id)) ? { ...pr, quiet: plan !== 'both' } : null;
+  };
   /** What isn't part of the version being shown stays on the map as a shadow, so the map keeps its shape. */
-  const ghostOf = (id: string): Ghost | null => (view === 'before' && changeOf(id) === 'added' ? 'later' : view === 'after' && changeOf(id) === 'removed' ? 'gone' : null);
+  const ghostOf = (id: string): Ghost | null => (view === 'before' && changeOf(id) === 'added' ? 'later' : view === 'after' && changeOf(id) === 'removed' ? 'gone' : planGhost(plan, proposalOf(id), wayOf(id)));
   /** In a single version nothing is "added" or "removed": it is simply there, or a shadow. What changed keeps its mark. */
   const drawnAs = (kind: Change | null) => (view === 'both' || kind === 'changed' ? kind : null);
+  // Labels' places for one layout (and the arrows shown in it); a new layout starts with labels where their arrows put them.
+  const placeKey = JSON.stringify([layout?.key ?? null, view, plan, ghost?.id ?? null]);
+  // What the proposal's key needs to explain in this version: new boxes, and each kind of shadow on the map.
+  const planShown = new Set<string>();
+  if (plan !== 'both') {
+    for (const id of p.map.nodes.map((n) => n.id)) {
+      const g = planGhost(plan, proposalOf(id), wayOf(id));
+      if (g) planShown.add(g);
+      else if (shownProposal(id)?.kind === 'add') planShown.add('new');
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -428,7 +480,12 @@ export function MapGraph(p: GraphProps) {
   // The map's ways through (a journey's branches, two ways in, a proposal's options): each one's colour, in the order the
   // layout gave them out.
   const branches = useMemo((): Branch[] => (layout?.layout.branches ?? []).map((name, i) => ({ name, colour: (i % BRANCH_COLOURS) + 1 })), [layout]);
-  const branchNamed = (name: string | null | undefined): Branch | null => (name ? branches.find((b) => b.name === name) ?? null : null);
+  // When the ways through are a proposal's options, their colours say which option a part belongs to. So a view of one
+  // option colours only that option, and the code as it is now colours none; Both colours them all.
+  const optionsShown = planIn.some((v) => v.startsWith('option:'));
+  const wayShown = (name: string) => !optionsShown || plan === 'both' || plan === `option:${name}`;
+  const branchNamed = (name: string | null | undefined): Branch | null => (name && wayShown(name) ? branches.find((b) => b.name === name) ?? null : null);
+  const keyed = branches.filter((b) => wayShown(b.name));
   /**
    * The colour a box or arrow is drawn in, unless something it means matters more: a change, a shadow, or a claim the
    * checker couldn't confirm keeps its own look. A proposal keeps its colour, so the options of a change can be told
@@ -499,7 +556,7 @@ export function MapGraph(p: GraphProps) {
           sub,
           kind: n.kind,
           confirmed: !!p.report && p.report.nodes[n.id]?.status !== 'unconfirmed',
-          proposal: p.report?.nodes[n.id]?.proposal ?? null,
+          proposal: shownProposal(n.id),
           screen: p.report?.screens?.[n.id]?.status === 'confirmed',
           selected: sel.nodes.includes(n.id),
           hl: !!lit?.has(n.id),
@@ -518,7 +575,7 @@ export function MapGraph(p: GraphProps) {
       }];
     });
     return [...areaNodes, ...stepNodes];
-  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured, view, branches]);
+  }, [layout, p.map, p.report, sel, lit, p.fresh, p.onSelect, pictured, view, plan, branches]);
 
   const edges = useMemo((): LinkEdgeT[] => {
     if (!layout) return [];
@@ -543,7 +600,7 @@ export function MapGraph(p: GraphProps) {
     };
     const out: LinkEdgeT[] = p.map.edges.map((e) => {
       const confirmed = !!p.report && p.report.edges[e.id]?.status !== 'unconfirmed';
-      const proposal = p.report?.edges[e.id]?.proposal ?? null;
+      const proposal = shownProposal(e.id);
       const change = drawnAs(p.report?.edges[e.id]?.change?.kind ?? null);
       // An arrow is a shadow when it isn't in this version, or when a box at either end isn't.
       const shadow = ghostOf(e.id) ?? ghostOf(e.from) ?? ghostOf(e.to);
@@ -634,7 +691,7 @@ export function MapGraph(p: GraphProps) {
     // Labels moved off boxes and each other, once worked out for this layout (see the effect below).
     if (placed.key === placeKey) for (const e of out) if (e.data && placed.at[e.id]) e.data.place = placed.at[e.id];
     return out;
-  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view, branches, placed, placeKey]);
+  }, [layout, p.map, p.report, sel, hl, lit, ghost, p.onSelect, view, plan, branches, placed, placeKey]);
 
   // Where labels go: once the map is drawn, each label is checked against the boxes, the area titles and the labels
   // placed before it, and moved along its arrow if it would cover one (labels.ts). Worked out again only when the
@@ -765,12 +822,13 @@ export function MapGraph(p: GraphProps) {
       maxZoom={2}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1.3} />
-      {(p.report?.since?.commit || branches.length > 0) && (
+      {(p.report?.since?.commit || planIn.length > 0 || branches.length > 0) && (
         // One panel for both keys, so they stack instead of covering each other.
         <Panel position="top-left">
           <div className="map-keys">
             {p.report?.since?.commit && <ChangeKey commit={p.report.since.commit.slice(0, 7)} when={view} onWhen={setWhen} />}
-            {branches.length > 0 && <BranchKey branches={branches} journey={p.map.view === 'journey'} />}
+            {planIn.length > 0 && <PlanKey views={planIn} plan={plan} onPlan={setPlan} shown={planShown} />}
+            {keyed.length > 0 && <BranchKey branches={keyed} journey={p.map.view === 'journey'} />}
           </div>
         </Panel>
       )}

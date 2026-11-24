@@ -417,6 +417,13 @@ body.resizing-bubble { cursor: nwse-resize; user-select: none; }
 .react-flow__edge.link.proposal-remove .react-flow__edge-path { stroke-dasharray: 2 5; }
 .react-flow__edge.link.proposal-remove.proposal-done .react-flow__edge-path { opacity: 0.45; }
 .link-label.proposal-pending { color: var(--ai); }
+/* With the change made (the proposal's own view, plan.ts): what is new is drawn solid, as part of the code, with a
+   "New" badge; only "Both" keeps the dashed look of something proposed on top. */
+.step.proposal-pending.proposal-quiet, .step.proposal-add.proposal-pending.proposal-quiet { border-style: solid; }
+.step.proposal-add.proposal-pending.proposal-quiet:not(.branch) { background: var(--surface); }
+.step.proposal-pending.proposal-quiet .step-code { border-style: solid; }
+.react-flow__edge.link.proposal-add.proposal-pending.proposal-quiet .react-flow__edge-path { stroke-dasharray: none; }
+.key-swatch.key-new { border-color: var(--ai); background: var(--ai-soft); }
 .link-label.proposal-remove .link-text { text-decoration: line-through; }
 .link-label.proposal-done .pmark { color: var(--ok); }
 .map-status.proposals { color: var(--ai); background: var(--ai-soft); border-radius: 999px; padding: 4px 11px; font-weight: 500; }
