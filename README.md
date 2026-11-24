@@ -61,6 +61,20 @@ For Codex, see [Codex (preview)](#codex-preview).
 - **Claude doesn't make a map after the restart:** run `/mcp` in Claude Code. It shows whether the illuminate server
   started, and its error if it didn't. The usual cause is Node: ask for a map anyway, and Claude checks Node, offers to
   install or update it, and tells you what to restart.
+- **`/mcp` says illuminate "failed" or "Connection closed", but Node and Claude Code are new enough:** the first time
+  Claude Code starts illuminate, `npx` has to download it, and on a slow connection that can take longer than Claude
+  Code waits. Download it once yourself in a terminal (it starts, then exits straight away):
+
+  ```
+  npx -y @johnz4021/illuminate@0.5.10 channel </dev/null
+  ```
+
+  Then, in Claude Code, run `/mcp`, choose **plugin:illuminate:illuminate** and **Reconnect** (or restart Claude Code).
+  It starts quickly from then on. If that command prints an error instead, that error is the real problem: please
+  [open an issue](https://github.com/johnz4021/illuminate/issues) with it. An error about a missing
+  `@oxc-parser/binding-…` usually means npm's cache is damaged: delete `~/.npm/_npx` and run the command again.
+  Versions before 0.5.10 downloaded about 170 MB the first time, so this happened much more often; update with the
+  steps below.
 
 ## Updating
 
@@ -248,6 +262,11 @@ npm run illume -- check <map-id> --repo <dir>  # re-check a saved map against th
 ```
 
 Options: `--port <n>` (default 4317), `--no-open`, `--model <id>` (default `claude-opus-5-5`, or `ILLUMINATE_MODEL`).
+
+The published package runs the CLI too, but leaves out the Agent SDK it needs to call Claude on its own (it brings a
+whole Claude Code binary, about 250 MB, which the plugin doesn't need). Install the two together:
+`npm i -g @johnz4021/illuminate @anthropic-ai/claude-agent-sdk@0.3.296`, then `illume "<question>"`. A checkout
+already has it.
 
 Claude access: an `ANTHROPIC_API_KEY` (a logged-in Claude Code also works for your own use, but don't hand illuminate to
 others that way: Anthropic doesn't allow products on the Agent SDK to use people's claude.ai sign-in). To keep the key in a file,

@@ -48,6 +48,14 @@ fs.copyFileSync(path.join(root, 'README.md'), path.join(out, 'README.md'));
 fs.copyFileSync(path.join(root, 'LICENSE'), path.join(out, 'LICENSE'));
 
 const pkg = JSON.parse(fs.readFileSync(path.join(out, 'package.json'), 'utf8'));
-pkg.dependencies = Object.fromEntries(Object.entries(deps).sort(([a], [b]) => a.localeCompare(b)));
+// The Agent SDK is only for the standalone CLI (`illume "<question>"`), and it brings a whole Claude Code binary (about
+// 250 MB). The plugin and channel use the person's own Claude Code instead, and with it as a dependency their first
+// `npx` start downloaded so much that Claude Code gave up waiting ("Connection closed"). So it's an optional peer:
+// npm doesn't install it, and the CLI says how to when it's asked to call Claude (`loadSdk` in agent.ts).
+const OPTIONAL = ['@anthropic-ai/claude-agent-sdk'];
+const sorted = (entries) => Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b)));
+pkg.dependencies = sorted(Object.entries(deps).filter(([name]) => !OPTIONAL.includes(name)));
+pkg.peerDependencies = sorted(Object.entries(deps).filter(([name]) => OPTIONAL.includes(name)));
+pkg.peerDependenciesMeta = Object.fromEntries(OPTIONAL.map((name) => [name, { optional: true }]));
 fs.writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
 console.log(`release/ is ready: ${pkg.name}@${pkg.version}`);

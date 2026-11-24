@@ -1,7 +1,7 @@
 // The one place illuminate talks to a model: a read-only Claude Agent SDK session that returns structured output.
 // Read, Grep and Glob only; secret files are refused and left out of searches. Tests swap in a fake `Agent`.
 import * as path from 'node:path';
-import { query, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { isSecretPath } from '@illuminate/core';
 
 export type Progress = { kind: 'read' | 'search' | 'list' | 'status'; text: string };
@@ -58,7 +58,31 @@ export function secretGuard(cwd: string): HookCallback {
   };
 }
 
+/** The SDK's own package name, so the published CLI can say what to install when it's missing. */
+export const AGENT_SDK = '@anthropic-ai/claude-agent-sdk';
+
+/**
+ * The Agent SDK, loaded only when the standalone CLI first asks Claude something. The published package doesn't
+ * install it (it brings a whole Claude Code binary, about 250 MB): the plugin and channel use the person's own Claude
+ * Code session instead, and downloading it made the plugin's first start too slow for Claude Code to wait for.
+ */
+async function loadSdk(): Promise<typeof import('@anthropic-ai/claude-agent-sdk')> {
+  try {
+    return await import('@anthropic-ai/claude-agent-sdk');
+  } catch (err) {
+    // Only the SDK itself being absent; anything else (a broken install, a missing piece inside it) shows as it is.
+    const e = err as { code?: string; message?: string };
+    const missing = (e.code === 'ERR_MODULE_NOT_FOUND' || e.code === 'MODULE_NOT_FOUND') && String(e.message).includes(`'${AGENT_SDK}'`);
+    if (!missing) throw err;
+    throw new Error(
+      `illume needs ${AGENT_SDK} to ask Claude on its own. Install it next to illuminate ` +
+        `(npm i -g @johnz4021/illuminate ${AGENT_SDK}), or use illuminate from Claude Code with the plugin, which needs neither.`,
+    );
+  }
+}
+
 export const sdkAgent: Agent = async (req) => {
+  const { query } = await loadSdk();
   const abortController = new AbortController();
   req.signal?.addEventListener('abort', () => abortController.abort(), { once: true });
   // Never more than read-only, whatever the caller asks for.
