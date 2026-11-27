@@ -2,7 +2,7 @@
   "mcpServers": {
     "illuminate": {
       "command": "npx",
-      "args": ["-y", "@johnz4021/illuminate@0.5.10", "channel", "--via", "plugin"]
+      "args": ["-y", "@johnz4021/illuminate@0.5.11", "channel", "--via", "plugin"]
     }
   }
 }
