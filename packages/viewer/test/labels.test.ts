@@ -1,6 +1,7 @@
-// Arrow labels never cover a box or each other: they stay put when clear, slide along their arrow, or become a dot.
+// Arrow labels never cover a box or each other: they stay put when clear, slide along their arrow, or become a small
+// "⋯" pill (a dot) that shows their words when pointed at.
 import { describe, expect, it } from 'vitest';
-import { placeLabels, type LabelInput } from '../src/labels';
+import { DOT, placeLabels, type LabelInput } from '../src/labels';
 
 // An arrow along y = 0 from x = 0 to x = 400.
 const flat = (id: string, w = 60, h = 20, at = { x: 200, y: 0 }): LabelInput => ({ id, w, h, at, along: (t) => ({ x: 400 * t, y: 0 }) });
@@ -28,6 +29,17 @@ describe('placing arrow labels', () => {
   it('makes a label a dot when nowhere on its arrow is clear', () => {
     const wall = { x: -50, y: -40, w: 500, h: 80 };
     expect(placeLabels([flat('a')], [wall])).toEqual({ a: 'dot' });
+  });
+
+  it('puts the pill of a label too long to fit in a clear spot on its arrow, never on a box', () => {
+    // Boxes over the whole arrow but a gap around x = 136 (a third of the way along): too narrow for the label, room
+    // for the pill.
+    const boxes = [{ x: -50, y: -30, w: 166, h: 60 }, { x: 156, y: -30, w: 294, h: 60 }];
+    const out = placeLabels([flat('a', 200)], boxes);
+    const p = out.a as { x: number; y: number; dot?: true };
+    expect(p.dot).toBe(true);
+    const pill = { x: p.x - DOT.w / 2, y: p.y - DOT.h / 2, w: DOT.w, h: DOT.h };
+    for (const b of boxes) expect(pill.x < b.x + b.w && b.x < pill.x + pill.w && pill.y < b.y + b.h && b.y < pill.y + pill.h).toBe(false);
   });
 
   it("makes a label a dot when its arrow can't be measured and its own spot is taken", () => {

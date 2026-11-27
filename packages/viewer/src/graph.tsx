@@ -340,8 +340,8 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
     : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   if (!data) return null;
   const moved = data.place && data.place !== 'dot' ? data.place : null;
-  // A label with nowhere clear to go is a dot on its arrow, showing its words when pointed at or selected.
-  const dot = data.place === 'dot' && !data.selected;
+  // A label with no room for its words is a small "⋯" pill on its arrow, showing its words when pointed at or selected.
+  const dot = (data.place === 'dot' || (typeof data.place === 'object' && 'dot' in data.place)) && !data.selected;
   return (
     <>
       {data.selected && <path d={path} className="edge-halo" />}

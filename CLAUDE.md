@@ -137,8 +137,8 @@ npm run dev -w @illuminate/viewer   # Vite on :5317, proxies /api and /ws to a s
   on), and when it fills in or changes what it passes (the owner, a mode), that box's explanation says so and cites
   the wrapper's line, so its code opens with the box. Both are Claude's judgement, not checked.
 - **Arrow labels** (`viewer/src/labels.ts`): once a layout is drawn, each label is checked against the boxes and the
-  labels placed before it, and slides along its own arrow to the first clear spot; with none it becomes a dot that
-  shows its words when pointed at. A missing connection's label is placed first and never becomes a dot; area titles
+  labels placed before it, and slides along its own arrow to the first clear spot; with none it becomes a small "⋯" pill
+  (kept off boxes and other labels where it fits) that shows its words when pointed at or when the arrow is selected. A missing connection's label is placed first and never becomes a dot; area titles
   are avoided when possible. Arrows sit under boxes (`zIndexMode="manual"`: areas 0, arrows 1, boxes 3), so a line
   can pass under a box but never across its words.
 - **Layers** (viewer): what each answer added (`answer.added`) can be hidden. The layout puts the original map down
